@@ -1,12 +1,16 @@
 import math
+import operator
 import sys
 from base64 import b64encode
 from decimal import Decimal
+from enum import auto, Enum
 from functools import partial
+from numbers import Number
 from typing import Optional, Tuple
 
 from faker.providers import BaseProvider
 from hypothesis import strategies as st
+from typing_extensions import Final
 
 """
 string (this includes dates and files)
@@ -34,6 +38,11 @@ class NoExampleFoundError(Exception):
     pass
 
 
+class NumberMode(Enum):
+    FLOAT = auto()
+    INTEGER = auto()
+
+
 class JSONSchemaProvider(BaseProvider):
 
     STRING_FORMAT_SYNONYMS = {
@@ -41,7 +50,7 @@ class JSONSchemaProvider(BaseProvider):
         'date-time': 'date_time',
     }
 
-    FLOAT_OFFSET = float("{}1".format("0" * (sys.float_info.dig - 2)))
+    FLOAT_OFFSET: Final = float("0.{}1".format("0" * (sys.float_info.dig - 2)))
 
     def base64_bytes(self, min_length: int, max_length: int) -> bytes:
         """
@@ -223,6 +232,167 @@ class JSONSchemaProvider(BaseProvider):
 
         return self.generator.random.uniform(min_value, max_value)
 
+    def _safe_random_int(self, min_value: Optional[int], max_value: Optional[int]):
+        """
+        This method exists in faker/providers/python/__init__.py
+        but it's not available in our provider because it's named as private
+
+        Also: https://github.com/joke2k/faker/issues/1152  (fixed here)
+        """
+        if None not in (min_value, max_value) and min_value == max_value:
+            raise ValueError('Min and max value cannot be the same')
+        orig_min_value = min_value
+        orig_max_value = max_value
+
+        if min_value is None and max_value is None:
+            a, b = self.random_int(), self.random_int()
+            min_value = min(a, b)
+            max_value = max(a, b)
+        elif min_value is None:
+            min_value = max_value - self.random_int()
+        elif max_value is None:
+            max_value = min_value + self.random_int()
+
+        if min_value == max_value:
+            return self._safe_random_int(orig_min_value, orig_max_value)
+        else:
+            return self.random_int(min_value, max_value - 1)
+
+    def _jsonschema_number(
+        self,
+        mode: NumberMode,
+        minimum: Optional[Number] = None,
+        maximum: Optional[Number] = None,
+        exclusive_min: bool = False,
+        exclusive_max: bool = False,
+        multiple_of: Optional[Number] = None,
+    ) -> Number:
+        if mode is NumberMode.FLOAT:
+            def _make_safe(val):
+                return Decimal(str(val)) if val is not None else val
+            _cast: Final = float
+            _offset: Final = self.FLOAT_OFFSET
+            _generator: Final = self.better_pyfloat
+        elif mode is NumberMode.INTEGER:
+            def _make_safe(val):
+                return val
+            _cast: Final = int
+            _offset: Final = 1
+            _generator: Final = self._safe_random_int
+        else:
+            raise TypeError(mode)
+
+        original_min = minimum
+        original_max = maximum
+
+        if None not in (minimum, maximum):
+            if maximum < minimum:
+                raise ValueError("maximum must be >= minimum")
+            diff = maximum - minimum
+            min_diff = 0
+            if exclusive_min:
+                min_diff += _offset
+            if exclusive_max:
+                min_diff += _offset
+            if diff < min_diff:
+                raise ValueError(
+                    f"cannot satisfy constraints "
+                    f"minimum: {original_min}, maximum: {original_max}, "
+                    f"exclusive_min: {exclusive_min}, exclusive_max: {exclusive_max}"
+                )
+
+        def offset_val(val, op):
+            offset = _offset
+            if val < 0:
+                offset = 0 - offset
+            return op(val, offset)
+
+        # `better_pyfloat` range is inclusive
+        if exclusive_min and minimum is not None:
+            minimum = min(offset_val(minimum, operator.add), maximum)
+        if exclusive_max and maximum is not None:
+            maximum = max(offset_val(maximum, operator.sub), minimum)
+
+        safe_min = _make_safe(minimum)
+        safe_max = _make_safe(maximum)
+
+        if minimum is not None and minimum == maximum:
+            # (returns early)
+            if (
+                multiple_of is not None and
+                Decimal(str(minimum)) % Decimal(str(multiple_of)) != 0
+            ):
+                raise ValueError(
+                    f"cannot satisfy constraints multiple_of: {multiple_of}, "
+                    f"minimum: {original_min}, maximum: {original_max}"
+                )
+            return _cast(minimum)
+
+        if None not in (minimum, maximum) and maximum < minimum:
+            raise ValueError("maximum must be >= minimum")
+
+        if multiple_of is None:
+            # (returns early)
+            return _generator(min_value=minimum, max_value=maximum)
+
+        # `multiple_of` is a massive PITA...
+        multiple_of = _make_safe(multiple_of)
+
+        if multiple_of == 0:
+            raise ValueError("invalid value for multiple_of: 0")
+
+        if minimum is None and maximum is None:
+            multiple = self.generator.random_int()
+            return _cast(_make_safe(multiple) * multiple_of)
+
+        def valid_range() -> bool:
+            return (
+                (safe_min % multiple_of == 0 and not exclusive_min) or
+                (safe_max % multiple_of == 0 and not exclusive_max) or
+                int(safe_min / multiple_of) != int(safe_max / multiple_of)
+            )
+
+        if None in (minimum, maximum):
+            # we need to choose a range that satisfies `multiple_of`
+            def set_missing() -> None:
+                nonlocal safe_min, safe_max
+                if maximum is None:
+                    assert minimum is not None
+                    safe_max = safe_min + self.generator.random_int()
+                elif minimum is None:
+                    assert maximum is not None
+                    safe_min = safe_max - self.generator.random_int()
+
+            for i in range(100):
+                set_missing()
+                if valid_range():
+                    break
+            else:
+                raise StopIteration(
+                    f"Could not find a valid minimum and maximum in 100 iterations",
+                    minimum,
+                    maximum,
+                )
+        else:
+            # minmimum and maximum were both specified
+            if not valid_range():
+                # range does not include any multiples of `multiple_of`
+                raise ValueError(
+                    f"cannot satisfy constraints multiple_of: {multiple_of}, "
+                    f"minimum: {original_min}, maximum: {original_max}, "
+                    f"exclusive_min: {exclusive_min}, exclusive_max: {exclusive_max}"
+                )
+
+        def get_range() -> Tuple[int, int]:
+            low = safe_min / multiple_of
+            high = safe_max / multiple_of
+            low, high = sorted((low, high))
+            return math.ceil(low), math.floor(high)
+
+        low, high = get_range()
+        multiple = self.generator.random_int(low, high)
+        return _cast(_make_safe(multiple) * multiple_of)
+
     def jsonschema_number(
         self,
         minimum: Optional[float] = None,
@@ -231,108 +401,28 @@ class JSONSchemaProvider(BaseProvider):
         exclusive_max: bool = False,
         multiple_of: Optional[float] = None,
     ) -> float:
-        if minimum is not None and minimum == maximum:
-            # (returns early)
-            if exclusive_min or exclusive_max:
-                raise ValueError(
-                    f"cannot satisfy constraints "
-                    f"minimum: {minimum}, maximum: {maximum}, "
-                    f"exclusive_min: {exclusive_min}, exclusive_max: {exclusive_max}"
-                )
-            if (
-                multiple_of is not None and
-                Decimal(str(minimum)) % Decimal(str(multiple_of)) != 0
-            ):
-                raise ValueError(
-                    f"cannot satisfy constraints multiple_of: {abs(multiple_of)}, "
-                    f"minimum: {minimum}, maximum: {maximum}"
-                )
-            return float(minimum)
+        return self._jsonschema_number(
+            mode=NumberMode.FLOAT,
+            minimum=minimum,
+            maximum=maximum,
+            exclusive_min=exclusive_min,
+            exclusive_max=exclusive_max,
+            multiple_of=multiple_of,
+        )
 
-        if None not in (minimum, maximum) and maximum < minimum:
-            raise ValueError("maximum must be >= minimum")
-
-        if multiple_of is not None:
-            # (returns early)
-            multiple_of = float(multiple_of)
-
-            if multiple_of == 0:
-                raise ValueError("invalid value for multiple_of: 0")
-
-            if minimum is None and maximum is None:
-                multiple = self.generator.random_int()
-                return float(
-                    str(
-                        Decimal(str(multiple)) * Decimal(str(multiple_of))
-                    )
-                )
-
-            def valid_range() -> bool:
-                return (
-                    (Decimal(str(minimum)) % Decimal(str(multiple_of)) == 0
-                        and not exclusive_min) or
-                    (Decimal(str(maximum)) % Decimal(str(multiple_of)) == 0
-                        and not exclusive_max) or
-                    int(minimum / multiple_of) != int(maximum / multiple_of)
-                )
-
-            if None in (minimum, maximum):
-                # we need to choose a range that satisfies `multiple_of`
-
-                def set_missing() -> None:
-                    nonlocal minimum, maximum
-                    if maximum is None:
-                        assert minimum is not None
-                        maximum = minimum + self.generator.random_int()
-                    elif minimum is None:
-                        assert maximum is not None
-                        minimum = maximum - self.generator.random_int()
-
-                set_missing()
-                i = 0
-                while not valid_range():
-                    if i == 100:
-                        raise StopIteration(
-                            f"Could not find a valid minimum and maximum in {i} iterations",
-                            minimum,
-                            maximum,
-                        )
-                    set_missing()
-                    i += 1
-            else:
-                # minmimum and maximum were both specified
-                if not valid_range():
-                    # range does not include any multiples of `multiple_of`
-                    raise ValueError(
-                        f"cannot satisfy constraints multiple_of: {multiple_of}, "
-                        f"minimum: {minimum}, maximum: {maximum}, "
-                        f"exclusive_min: {exclusive_min}, exclusive_max: {exclusive_max}"
-                    )
-
-            def get_range() -> Tuple[int, int]:
-                low = Decimal(str(minimum)) / Decimal(str(multiple_of))
-                high = Decimal(str(maximum)) / Decimal(str(multiple_of))
-                low, high = sorted((low, high))
-                return math.ceil(low), math.floor(high)
-
-            low, high = get_range()
-            multiple = self.generator.random_int(low, high)
-            return float(
-                str(
-                    Decimal(str(multiple)) * Decimal(str(multiple_of))
-                )
-            )
-
-        def offset_val(val):
-            if val >= 0:
-                return val + self.FLOAT_OFFSET
-            else:
-                return val - self.FLOAT_OFFSET
-
-        # `better_pyfloat` range is inclusive
-        if exclusive_min and minimum is not None:
-            minimum = offset_val(minimum)
-        if exclusive_max and maximum is not None:
-            maximum = offset_val(maximum)
-
-        return self.better_pyfloat(min_value=minimum, max_value=maximum)
+    def jsonschema_integer(
+        self,
+        minimum: Optional[int] = None,
+        maximum: Optional[int] = None,
+        exclusive_min: bool = False,
+        exclusive_max: bool = False,
+        multiple_of: Optional[int] = None,
+    ) -> int:
+        return self._jsonschema_number(
+            mode=NumberMode.INTEGER,
+            minimum=minimum,
+            maximum=maximum,
+            exclusive_min=exclusive_min,
+            exclusive_max=exclusive_max,
+            multiple_of=multiple_of,
+        )

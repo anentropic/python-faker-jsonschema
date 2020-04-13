@@ -20,31 +20,9 @@ def faker(record_property):
     return fake
 
 
-@pytest.mark.parametrize(
-    "min_value,max_value",
-    itertools.product(
-        (None, 0, -10.99999, -10.00001, 10.00001, 10.99999, -10, 10, 9999),
-        (None, 0, -10.99999, -10.00001, 10.00001, 10.99999, -10, 10, 9999),
-    )
-)
-def test_better_pyfloat(faker, min_value, max_value):
-    if None not in (min_value, max_value) and min_value > max_value:
-        with pytest.raises(ValueError):
-            faker.better_pyfloat(min_value, max_value)
-        return
-
-    result = faker.better_pyfloat(min_value, max_value)
-    assert isinstance(result, float)
-
-    if min_value is not None:
-        assert result >= min_value
-    if max_value is not None:
-        assert result <= max_value
-
-
-def test_jsonschema_number_invalid_multiple(faker):
+def test_jsonschema_integer_invalid_multiple(faker):
     with pytest.raises(ValueError):
-        faker.jsonschema_number(
+        faker.jsonschema_integer(
             minimum=1,
             maximum=5,
             multiple_of=0,
@@ -55,41 +33,71 @@ def test_jsonschema_number_invalid_multiple(faker):
     "exclusive_min,exclusive_max",
     itertools.product(*[[True, False]]*2)
 )
-def test_jsonschema_number_invalid_exclusive_range(
+def test_jsonschema_integer_invalid_exclusive_range(
     faker, exclusive_min, exclusive_max
 ):
     if True in (exclusive_min, exclusive_max):
         with pytest.raises(ValueError):
-            faker.jsonschema_number(
+            faker.jsonschema_integer(
                 minimum=5,
                 maximum=5,
                 exclusive_min=exclusive_min,
                 exclusive_max=exclusive_max,
             )
     else:
-        result = faker.jsonschema_number(
+        result = faker.jsonschema_integer(
             minimum=5,
             maximum=5,
             exclusive_min=exclusive_min,
             exclusive_max=exclusive_max,
         )
-        assert isinstance(result, float)
+        assert isinstance(result, int)
         assert result == 5
+
+
+@pytest.mark.flaky(max_runs=25, min_passes=25)
+@pytest.mark.parametrize(
+    "minimum,maximum,exclusive_min,exclusive_max",
+    itertools.product(
+        (10,),
+        (12,),
+        (True, False),
+        (True, False),
+    )
+)
+def test_jsonschema_integer_exclusive_range(
+    faker, minimum, maximum, exclusive_min, exclusive_max
+):
+    result = faker.jsonschema_integer(
+        minimum=minimum,
+        maximum=maximum,
+        exclusive_min=exclusive_min,
+        exclusive_max=exclusive_max,
+    )
+    assert isinstance(result, int)
+    if exclusive_min:
+        assert result > minimum
+    else:
+        assert result >= minimum
+    if exclusive_max:
+        assert result < maximum
+    else:
+        assert result <= maximum
 
 
 @pytest.mark.parametrize(
     "minimum,maximum,multiple_of",
     itertools.product(
-        (None, 0, -10.99999, -10.00001, 10, 10.00001, 10.99999, -13, 13, 9999),
-        (None, 0, -10.99999, -10.00001, 10, 10.00001, 10.99999, -13, 13, 9999),
-        (None, -10, -3, -2.5, -1.33, 1.33, 2.5, 3, 10),
+        (None, 0, -3, 3, 10, -13, 13, 9999),
+        (None, 0, -3, 3, 10, -13, 13, 9999),
+        (None, -10, -3, 3, 10),
     )
 )
-def test_jsonschema_number(faker, minimum, maximum, multiple_of):
+def test_jsonschema_integer(faker, minimum, maximum, multiple_of):
     if None not in (minimum, maximum):
         if (minimum > maximum):
             with pytest.raises(ValueError):
-                faker.jsonschema_number(
+                faker.jsonschema_integer(
                     minimum=minimum,
                     maximum=maximum,
                     multiple_of=multiple_of,
@@ -97,7 +105,7 @@ def test_jsonschema_number(faker, minimum, maximum, multiple_of):
             return
 
     try:
-        result = faker.jsonschema_number(
+        result = faker.jsonschema_integer(
             minimum=minimum,
             maximum=maximum,
             multiple_of=multiple_of,
@@ -110,15 +118,15 @@ def test_jsonschema_number(faker, minimum, maximum, multiple_of):
         assert minimum is not None
         assert maximum is not None
         assert int(minimum / multiple_of) == int(maximum / multiple_of)
-        assert Decimal(str(minimum)) % Decimal(str(multiple_of)) != 0
-        assert Decimal(str(maximum)) % Decimal(str(multiple_of)) != 0
+        assert minimum % multiple_of != 0
+        assert maximum % multiple_of != 0
         return
 
-    assert isinstance(result, float)
+    assert isinstance(result, int)
     if minimum is not None:
         assert result >= minimum
     if maximum is not None:
         assert result <= maximum
     if multiple_of is not None:
-        assert Decimal(str(result)) % Decimal(str(multiple_of)) == 0, (
+        assert result % multiple_of == 0, (
             result, multiple_of, result % multiple_of)
