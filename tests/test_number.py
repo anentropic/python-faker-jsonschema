@@ -1,23 +1,9 @@
 import itertools
-import os
-import random
 from decimal import Decimal
 
 import pytest
-from faker import Faker
 
-from faker_jsonschema.provider import JSONSchemaProvider
-
-
-@pytest.fixture
-def faker(record_property):
-    seed = int(os.getenv("SEED", random.randint(0, 9999999)))
-    record_property("SEED", seed)
-    print("SEED={}  ".format(seed), end='')
-    Faker.seed(seed)
-    fake = Faker()
-    fake.add_provider(JSONSchemaProvider)
-    return fake
+from faker_jsonschema.provider import UnsatisfiableConstraintsError
 
 
 @pytest.mark.parametrize(
@@ -59,7 +45,7 @@ def test_jsonschema_number_invalid_exclusive_range(
     faker, exclusive_min, exclusive_max
 ):
     if True in (exclusive_min, exclusive_max):
-        with pytest.raises(ValueError):
+        with pytest.raises(UnsatisfiableConstraintsError):
             faker.jsonschema_number(
                 minimum=5,
                 maximum=5,
@@ -132,10 +118,11 @@ def test_jsonschema_number(faker, minimum, maximum, multiple_of):
             maximum=maximum,
             multiple_of=multiple_of,
         )
-    except ValueError:
-        # we should only get ValueError if `multiple_of` was specified in
-        # conjunction with manually-specified `minimum` and `maximum` values
-        # where the range does not contain any multiple of `multiple_of`
+    except UnsatisfiableConstraintsError:
+        # we should only get UnsatisfiableConstraintsError if `multiple_of` was
+        # specified in conjunction with manually-specified `minimum` and
+        # `maximum` values where the range does not contain any multiple of
+        # `multiple_of`
         assert multiple_of is not None
         assert minimum is not None
         assert maximum is not None

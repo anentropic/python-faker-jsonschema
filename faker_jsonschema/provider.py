@@ -13,7 +13,7 @@ from hypothesis import strategies as st
 from typing_extensions import Final
 
 """
-string (this includes dates and files)
+string (this includes dates and files) TODO: generate picture files
 number
 integer
 boolean
@@ -35,6 +35,10 @@ xml
 
 
 class NoExampleFoundError(Exception):
+    pass
+
+
+class UnsatisfiableConstraintsError(Exception):
     pass
 
 
@@ -76,27 +80,25 @@ class JSONSchemaProvider(BaseProvider):
         max_length: Optional[int] = None,
         pattern: Optional[str] = None,
         format_: Optional[str] = None,
-        max_attempts: int = 1000,
+        max_attempts: int = 1250,  # TODO: too big? (tests are slow)
     ) -> str:
         """
         Args:
-            faker: instance to use
             min_length: we will try to respect this for all strategies
             max_length: we will try to respect this for all strategies
-            pattern: The regular expression syntax used is from JavaScript
+            pattern: "The regular expression syntax used is from JavaScript
                 (more specifically, ECMA 262). Without ^...$, pattern works as
                 a partial match, that is, matches any string that contains the
-                specified regular expression.
+                specified regular expression."
+                ...but obviously we just use python built-in regex
             format_: OpenAPI mandates some specific formats, others are allowed
                 without having a formal meaning in the spec. We will attempt to
-                match the format to a faker method
-            max_attempts: if `pattern` or `format_` are specified in conjuntion
+                match the format to a faker method (since many of them coincide
+                and it seems useful behaviour)
+            max_attempts: if `pattern` or `format_` are used in conjunction
                 with `min_length` or `max_length` then we have to search for
                 values which meet all constraints. We don't want to search
                 forever so we limit the search attempts.
-
-        Returns:
-            str
 
         Raises:
             NoExampleFoundError
@@ -158,6 +160,7 @@ class JSONSchemaProvider(BaseProvider):
             # NOTE: `format` is ignored if `pattern` is given
             regex_st = st.from_regex(pattern)
             try:
+                # TODO suppress warning from Hypothesis
                 return search(regex_st.example)
             except NoExampleFoundError as e:
                 raise NoExampleFoundError(
@@ -220,7 +223,7 @@ class JSONSchemaProvider(BaseProvider):
         `faker.pyfloat` only supports int for min and max value
         """
         if None not in (min_value, max_value) and min_value > max_value:
-            raise ValueError('Min value cannot be greater than max value')
+            raise ValueError('min_value cannot be greater than max_value')
         if None not in (min_value, max_value) and min_value == max_value:
             # `faker.pyfloat` doesn't allow this but I don't see why not
             return float(min_value)
@@ -240,7 +243,7 @@ class JSONSchemaProvider(BaseProvider):
         Also: https://github.com/joke2k/faker/issues/1152  (fixed here)
         """
         if None not in (min_value, max_value) and min_value == max_value:
-            raise ValueError('Min and max value cannot be the same')
+            raise ValueError('min_value and max_value cannot be the same')
         orig_min_value = min_value
         orig_max_value = max_value
 
@@ -295,7 +298,7 @@ class JSONSchemaProvider(BaseProvider):
             if exclusive_max:
                 min_diff += _offset
             if diff < min_diff:
-                raise ValueError(
+                raise UnsatisfiableConstraintsError(
                     f"cannot satisfy constraints "
                     f"minimum: {original_min}, maximum: {original_max}, "
                     f"exclusive_min: {exclusive_min}, exclusive_max: {exclusive_max}"
@@ -322,7 +325,7 @@ class JSONSchemaProvider(BaseProvider):
                 multiple_of is not None and
                 Decimal(str(minimum)) % Decimal(str(multiple_of)) != 0
             ):
-                raise ValueError(
+                raise UnsatisfiableConstraintsError(
                     f"cannot satisfy constraints multiple_of: {multiple_of}, "
                     f"minimum: {original_min}, maximum: {original_max}"
                 )
@@ -377,7 +380,7 @@ class JSONSchemaProvider(BaseProvider):
             # minmimum and maximum were both specified
             if not valid_range():
                 # range does not include any multiples of `multiple_of`
-                raise ValueError(
+                raise UnsatisfiableConstraintsError(
                     f"cannot satisfy constraints multiple_of: {multiple_of}, "
                     f"minimum: {original_min}, maximum: {original_max}, "
                     f"exclusive_min: {exclusive_min}, exclusive_max: {exclusive_max}"
