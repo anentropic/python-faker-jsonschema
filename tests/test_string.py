@@ -4,7 +4,7 @@ from typing import List, Optional, Tuple
 
 import pytest
 
-from faker_jsonschema.provider import NoExampleFoundError
+from faker_jsonschema.provider import UnsatisfiableConstraintsError
 
 
 @pytest.mark.flaky(max_runs=5, min_passes=5)
@@ -65,7 +65,7 @@ def test_jsonschema_pattern(
         )
 
     if possible_lengths is not None and not valid_constraints():
-        with pytest.raises(NoExampleFoundError):
+        with pytest.raises(UnsatisfiableConstraintsError):
             result = faker.jsonschema_string(
                 pattern=pattern,
                 min_length=min_length,
@@ -84,3 +84,28 @@ def test_jsonschema_pattern(
     assert len(result) >= min_length
     if max_length is not None:
         assert len(result) <= max_length
+
+
+@pytest.mark.parametrize(
+    "format_, return_type",
+    (
+        # defined in OpenAPI spec:
+        ("date", str),
+        ("date-time", str),
+        ("password", str),
+        ("byte", bytes),
+        ("binary", bytes),
+        # mentioned in OpenAPI spec as examples:
+        ("email", str),
+        ("uuid", str),
+        ("uri", str),
+        ("hostname", str),
+        ("ipv4", str),
+        ("ipv6", str),
+    )
+)
+def test_jsonschema_format(faker, format_, return_type):
+    result = faker.jsonschema_string(
+        format_=format_,
+    )
+    assert isinstance(result, return_type)

@@ -2,12 +2,14 @@ import math
 import operator
 import sys
 from base64 import b64encode
+from dataclasses import dataclass
 from decimal import Decimal
 from enum import auto, Enum
 from functools import partial
 from numbers import Number
-from typing import Optional, Tuple
+from typing import Optional, Sequence, Tuple, TypeVar, Union
 
+import pytz
 from faker.providers import BaseProvider
 from hypothesis import strategies as st
 from typing_extensions import Final
@@ -47,16 +49,113 @@ class NumberMode(Enum):
     INTEGER = auto()
 
 
+class LengthType(Enum):
+    FIXED = auto()
+    VARIABLE_SINGULAR = auto()
+    VARIABLE_RANGE = auto()
+    UNCONSTRAINED = auto()
+
+
+ReturnT = TypeVar("T", bound=Union[str, bytes])
+
+
+@dataclass
+class StringFormat:
+    length_type: LengthType
+    lengths: Optional[Union[Sequence[int], range]] = None
+    return_type: ReturnT = str
+
+    def validate_constraints(
+        self, min_length: int, max_length: Optional[int]
+    ) -> bool:
+        if self.length_type is LengthType.FIXED:
+            # example will be one of several fixed lengths
+            assert self.lengths
+            if isinstance(self.lengths, range):
+                assert self.lengths.step == 1
+                return (
+                    self.lengths.start >= min_length and
+                    (max_length is None or self.lengths.stop <= max_length)
+                )
+            else:
+                return any(
+                    len_ >= min_length and (
+                        max_length is None or len_ <= max_length)
+                    for len_ in self.lengths
+                )
+        else:
+            # VARIABLE_SINGULAR and VARIABLE_RANGE mean we can specify
+            # the length to be generated
+            # UNCONSTRAINED means examples can be any length, we will have
+            # to brute-force search for a matching example
+            return True
+
+
 class JSONSchemaProvider(BaseProvider):
 
-    STRING_FORMAT_SYNONYMS = {
-        'uuid': 'uuid4',
-        'date-time': 'date_time',
+    STRING_FORMATS = {
+        # defined in OpenAPI spec:
+        "date": StringFormat(
+            length_type=LengthType.FIXED,
+            lengths=[10],
+        ),
+        "date-time": StringFormat(
+            length_type=LengthType.FIXED,
+            lengths=[25],
+        ),
+        "password": StringFormat(
+            length_type=LengthType.VARIABLE_SINGULAR,
+        ),
+        "byte": StringFormat(
+            length_type=LengthType.VARIABLE_RANGE,
+            return_type=bytes,
+        ),
+        "binary": StringFormat(
+            length_type=LengthType.VARIABLE_SINGULAR,
+            return_type=bytes,
+        ),
+        # mentioned in OpenAPI spec as examples:
+        "email": StringFormat(
+            length_type=LengthType.UNCONSTRAINED,
+        ),
+        "uuid": StringFormat(
+            length_type=LengthType.FIXED,
+            lengths=[36],
+        ),
+        "uri": StringFormat(
+            length_type=LengthType.UNCONSTRAINED,
+        ),
+        "hostname": StringFormat(
+            length_type=LengthType.UNCONSTRAINED,
+        ),
+        "ipv4": StringFormat(
+            length_type=LengthType.UNCONSTRAINED,
+            # 0.0.0.0 -> 255.255.255.255
+            lengths=range(7, 16),
+        ),
+        "ipv6": StringFormat(
+            length_type=LengthType.FIXED,
+            # :: -> "1000:1000:1000:1000:1000:1abc:1007:1def"
+            lengths=range(2, 40),
+        ),
     }
 
     FLOAT_OFFSET: Final = float("0.{}1".format("0" * (sys.float_info.dig - 2)))
 
-    def base64_bytes(self, min_length: int, max_length: int) -> bytes:
+    def _format_date(self) -> str:
+        return self.generator.date()
+
+    def _format_date_time(self, tzinfo=None) -> str:
+        if not tzinfo:
+            tzinfo = pytz.timezone(
+                self.generator.random_element(pytz.all_timezones_set)
+            )
+        return self.generator.iso8601(tzinfo=tzinfo)
+
+    def _format_password(self, length: int) -> str:
+        return self.generator.password(length=length)
+
+    def _format_byte(self, min_length: int, max_length: int) -> bytes:
         """
         Base64 values always have length which is a multiple of 4
         and the encoded value will be 4/3 * longer than the original.
@@ -74,14 +173,35 @@ class JSONSchemaProvider(BaseProvider):
         original = self.generator.pystr(min_chars=og_min, max_chars=og_max)
         return b64encode(original.encode())
 
+    def _format_binary(self, length: int) -> bytes:
+        return self.generator.binary(length=length)
+
+    def _format_email(self) -> str:
+        return self.generator.email()
+
+    def _format_uuid(self) -> str:
+        return self.generator.uuid4()
+
+    def _format_uri(self) -> str:
+        return self.generator.uri()
+
+    def _format_hostname(self) -> str:
+        return self.generator.hostname()
+
+    def _format_ipv4(self) -> str:
+        return self.generator.ipv4()
+
+    def _format_ipv6(self) -> str:
+        return self.generator.ipv6()
+
     def jsonschema_string(
         self,
         min_length: int = 0,
         max_length: Optional[int] = None,
         pattern: Optional[str] = None,
         format_: Optional[str] = None,
-        max_attempts: int = 1250,  # TODO: too big? (tests are slow)
-    ) -> str:
+        max_attempts: int = 1250,
+    ) -> Union[str, bytes]:
         """
         Args:
             min_length: we will try to respect this for all strategies
@@ -115,7 +235,9 @@ class JSONSchemaProvider(BaseProvider):
             password: a hint to UIs to mask the input
             byte: base64-encoded characters, for example
                 `U3dhZ2dlciByb2Nrcw==`
+                NOTE: JSONSchema spec defines this as `contentEncoding: base64`
             binary: binary data, used to describe files (see Files below)
+                probably only applicable to non-JSON payloads
 
         However, `format` is an open value, so you can use any formats, even
         those not defined by the OpenAPI Specification, such as:
@@ -135,6 +257,11 @@ class JSONSchemaProvider(BaseProvider):
 
         NOTE: obviously it is possible to specify `min_length`, `max_length`
         and `pattern` such that no valid value exists.
+
+        NOTE: we treat `format` and `pattern` as exclusive (with `pattern`
+        taking precedence if defined) since for most values of `format` the
+        regex validation would either be redundant or we have no strategy short
+        of brute force that could generate examples matching both constraints.
         """
         if max_length is not None and max_length < min_length:
             raise ValueError("max_length must be >= min_length")
@@ -168,53 +295,74 @@ class JSONSchemaProvider(BaseProvider):
                     f"pattern: /{pattern}/ and min_length: {min_length}, "
                     f"max_length: {max_length} after {max_attempts} attempts."
                 ) from e
-        elif format_ is not None and format_ not in ("byte", "binary"):
+        elif format_ is not None:
             # (returns early)
             # NOTE: we will 'fall through' if no matching faker can be found
             try:
-                format_ = self.STRING_FORMAT_SYNONYMS[format_]
+                format_type = self.STRING_FORMATS[format_]
             except KeyError:
-                pass
-            try:
-                generator = getattr(self.generator, format_)
-            except AttributeError:
-                pass
-            else:
                 try:
-                    return search(generator)
-                except NoExampleFoundError as e:
-                    raise NoExampleFoundError(
-                        f"Unable to generate any random value that matches "
-                        f"format: {format_} and min_length: {min_length}, "
-                        f"max_length: {max_length} after {max_attempts} attempts."
-                    ) from e
+                    faker_method = getattr(self.generator, format_)
+                except AttributeError:
+                    pass
+                else:
+                    try:
+                        return search(lambda: str(faker_method()))
+                    except NoExampleFoundError as e:
+                        raise UnsatisfiableConstraintsError(
+                            f"Unable to generate any random value that matches "
+                            f"format: {format_} and min_length: {min_length}, "
+                            f"max_length: {max_length} after {max_attempts} attempts."
+                        ) from e
+            else:
+                if not format_type.validate_constraints(min_length, max_length):
+                    raise UnsatisfiableConstraintsError(
+                        f"Constraints min_length: {min_length}, max_length: "
+                        f"{max_length} are incompatible with format: {format_}."
+                    )
 
-        if max_length is None:
-            # the faker providers all need a max
-            max_length = 255
+                method = getattr(
+                    self, "_format_{}".format(format_.replace("-", "_"))
+                )
+                if format_type.length_type is LengthType.FIXED:
+                    return method()
+                elif format_type.length_type is LengthType.VARIABLE_SINGULAR:
+                    return method(
+                        length=self._safe_random_int(min_length, max_length)
+                    )
+                elif format_type.length_type is LengthType.VARIABLE_RANGE:
+                    return method(
+                        min_length=min_length,
+                        max_length=max_length if max_length is not None else 255,
+                    )
+                elif format_type.length_type is LengthType.UNCONSTRAINED:
+                    try:
+                        return search(method)
+                    except NoExampleFoundError as e:
+                        raise UnsatisfiableConstraintsError(
+                            f"Unable to generate any random value that matches "
+                            f"format: {format_} and min_length: {min_length}, "
+                            f"max_length: {max_length} after {max_attempts} attempts."
+                        ) from e
 
-        # special cases:
-        # (returns early)
-        if format_ == "byte":
-            return self.base64_bytes(
-                min_length=min_length, max_length=max_length
-            )
-        elif format_ == "binary":
-            length = self.generator.random_int(min_length, max_length)
-            return self.generator.binary(length=length)
-
-        if min_length > 5 and max_length > 10:
+        if min_length > 5 and not (max_length is not None and max_length < 20):
             # (returns early)
             # use the "lorem ipsum" provider
             # (...has a min length generatable of 5 chars)
+            generator = partial(
+                self.generator.text,
+                max_nb_chars=max_length if max_length is not None else 255
+            )
             # NOTE: we will 'fall through' if no valid example can be found
-            generator = partial(self.generator.text, max_nb_chars=max_length)
             try:
                 return search(generator)
             except NoExampleFoundError:
                 pass
 
-        return self.generator.pystr(min_chars=min_length, max_chars=max_length)
+        return self.generator.pystr(
+            min_chars=min_length,
+            max_chars=max_length if max_length is not None else 255,
+        )
 
     def better_pyfloat(
         self, min_value: Optional[float], max_value: Optional[float]
