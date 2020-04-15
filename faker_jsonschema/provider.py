@@ -14,6 +14,8 @@ from faker.providers import BaseProvider
 from hypothesis import strategies as st
 from typing_extensions import Final
 
+from .utils import intinf
+
 """
 string (this includes dates and files) TODO: generate picture files
 number
@@ -68,26 +70,52 @@ class StringFormat:
     def validate_constraints(
         self, min_length: int, max_length: Optional[int]
     ) -> bool:
-        if self.length_type is LengthType.FIXED:
+        assert min_length >= 0
+        assert max_length is None or max_length >= 0
+        # VARIABLE_SINGULAR and VARIABLE_RANGE mean we can specify the length
+        # to be generated, but possible values may still be constrained
+        if self.lengths:
             # example will be one of several fixed lengths
-            assert self.lengths
             if isinstance(self.lengths, range):
-                assert self.lengths.step == 1
+                assert self.lengths.start >= 0
+                assert self.lengths.stop > 0
+                assert self.lengths.step > 0
+                if min_length > self.lengths.start:
+                    return False
+                # min_length is valid...
+                if max_length is None or max_length >= self.lengths.stop:
+                    return True
+                offset = self.lengths.start % self.lengths.step
+                nearest_to_min = (
+                    min_length
+                    + offset
+                    - (min_length % self.lengths.stop)
+                )
+                max_reachable = (
+                    self.lengths.stop
+                    + offset
+                    - (self.lengths.stop % self.lengths.step)
+                    - (self.lengths.step
+                        if self.lengths.stop in self.lengths
+                        else 0)
+                )
                 return (
-                    self.lengths.start >= min_length and
-                    (max_length is None or self.lengths.stop <= max_length)
+                    max_length >= nearest_to_min and
+                    max_length >= max_reachable
                 )
             else:
-                return any(
+                return all(
                     len_ >= min_length and (
                         max_length is None or len_ <= max_length)
                     for len_ in self.lengths
                 )
         else:
-            # VARIABLE_SINGULAR and VARIABLE_RANGE mean we can specify
-            # the length to be generated
             # UNCONSTRAINED means examples can be any length, we will have
             # to brute-force search for a matching example
+            if self.length_type is LengthType.UNCONSTRAINED and max_length == 0:
+                # I'm guessing that most UNCONSTRAINED generators will never
+                # generate an empty string
+                return False
             return True
 
 
@@ -95,12 +123,15 @@ class JSONSchemaProvider(BaseProvider):
 
     STRING_FORMATS = {
         # defined in OpenAPI spec:
+        # ----------
         "date": StringFormat(
             length_type=LengthType.FIXED,
+            # 2009-05-08
             lengths=[10],
         ),
         "date-time": StringFormat(
             length_type=LengthType.FIXED,
+            # 2009-05-08T19:12:48+01:56
             lengths=[25],
         ),
         "password": StringFormat(
@@ -109,17 +140,21 @@ class JSONSchemaProvider(BaseProvider):
         "byte": StringFormat(
             length_type=LengthType.VARIABLE_RANGE,
             return_type=bytes,
+            # returned length is a multiple of 4
+            lengths=range(0, intinf, 4),
         ),
         "binary": StringFormat(
             length_type=LengthType.VARIABLE_SINGULAR,
             return_type=bytes,
         ),
         # mentioned in OpenAPI spec as examples:
+        # ----------
         "email": StringFormat(
             length_type=LengthType.UNCONSTRAINED,
         ),
         "uuid": StringFormat(
             length_type=LengthType.FIXED,
+            # a1a88cbb-7634-4504-a454-7bb8aec36a1e
             lengths=[36],
         ),
         "uri": StringFormat(
@@ -129,13 +164,13 @@ class JSONSchemaProvider(BaseProvider):
             length_type=LengthType.UNCONSTRAINED,
         ),
         "ipv4": StringFormat(
-            length_type=LengthType.UNCONSTRAINED,
+            length_type=LengthType.FIXED,
             # 0.0.0.0 -> 255.255.255.255
             lengths=range(7, 16),
         ),
         "ipv6": StringFormat(
             length_type=LengthType.FIXED,
-            # :: -> "1000:1000:1000:1000:1000:1abc:1007:1def"
+            # :: -> 1000:1000:1000:1000:1000:1abc:1007:1def
             lengths=range(2, 40),
         ),
     }
@@ -147,9 +182,7 @@ class JSONSchemaProvider(BaseProvider):
 
     def _format_date_time(self, tzinfo=None) -> str:
         if not tzinfo:
-            tzinfo = pytz.timezone(
-                self.generator.random_element(pytz.all_timezones_set)
-            )
+            tzinfo = pytz.timezone(self.generator.timezone())
         return self.generator.iso8601(tzinfo=tzinfo)
 
     def _format_password(self, length: int) -> str:
@@ -160,17 +193,12 @@ class JSONSchemaProvider(BaseProvider):
         Base64 values always have length which is a multiple of 4
         and the encoded value will be 4/3 * longer than the original.
         """
-        # adjust values to what is possible after encoding
-        min_length = min_length + 4 - (min_length % 4)
-        max_length = max_length - (max_length % 4)
-        if max_length < min_length:
-            raise ValueError(
-                "max_length must be >= min_length after rounding (base64 "
-                "encoded values have length that is a multiple of 4)"
-            )
-        og_min = math.ceil(min_length * 3 / 4)
-        og_max = math.floor(max_length * 3 / 4)
-        original = self.generator.pystr(min_chars=og_min, max_chars=og_max)
+        if max_length == 0:
+            # b64encode(b'') == b''
+            return b""
+        original = self.generator.pystr(
+            min_chars=min_length, max_chars=max_length
+        )
         return b64encode(original.encode())
 
     def _format_binary(self, length: int) -> bytes:
@@ -263,6 +291,8 @@ class JSONSchemaProvider(BaseProvider):
         regex validation would either be redundant or we have no strategy short
         of brute force that could generate examples matching both constraints.
         """
+        if min_length < 0:
+            raise ValueError("min_length must be >= 0")
         if max_length is not None and max_length < min_length:
             raise ValueError("max_length must be >= min_length")
 
