@@ -1,22 +1,42 @@
+import inspect
+import itertools
+import json
 import math
 import operator
+import re
 import sys
 from base64 import b64encode
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import auto, Enum
-from functools import partial
+from functools import partial, reduce, wraps
 from numbers import Number
-from typing import Optional, Sequence, Tuple, TypeVar, Union
+from random import shuffle
+from typing import (
+    Callable,
+    Dict,
+    FrozenSet,
+    Iterable,
+    List,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
+)
 
 import pytz
+from jsonschema import validate, ValidationError
 from faker.providers import BaseProvider
 from hypothesis import strategies as st
 from typing_extensions import Final
+from wrapt import ObjectProxy
 
 from .utils import intinf
 
 """
+TODO: rename as OpenAPI
+
+
 string (this includes dates and files) TODO: generate picture files
 number
 integer
@@ -46,6 +66,10 @@ class UnsatisfiableConstraintsError(Exception):
     pass
 
 
+class NotSet(Enum):
+    SENTINEL = auto()
+
+
 class NumberMode(Enum):
     FLOAT = auto()
     INTEGER = auto()
@@ -58,14 +82,56 @@ class LengthType(Enum):
     UNCONSTRAINED = auto()
 
 
-ReturnT = TypeVar("T", bound=Union[str, bytes])
+class TypeName(str, Enum):
+    STRING = "string"
+    NUMBER = "number"
+    INTEGER = "integer"
+    BOOLEAN = "boolean"
+    ARRAY = "array"
+    OBJECT = "object"
+    ONE_OF = "oneOf"  # data must be valid against only one of the sub-schemas
+    ANY_OF = "anyOf"  # data must be valid against any one of the sub-schemas
+    ALL_OF = "allOf"  # data must be valid against all of the sub-schemas
+    ANY = "any"  # i.e. `JsonT`
+    NOT = "not"  # "any, except ___"
+
+
+FLAT_TYPES = {
+    TypeName.STRING,
+    TypeName.NUMBER,
+    TypeName.INTEGER,
+    TypeName.BOOLEAN,
+}
+
+NESTED_TYPES = {
+    TypeName.ARRAY,
+    TypeName.OBJECT,
+}
+
+BASIC_TYPES = FLAT_TYPES | NESTED_TYPES
+
+COMPOUND_TYPES = {
+    TypeName.ONE_OF,
+    TypeName.ANY_OF,
+    TypeName.ALL_OF,
+    TypeName.NOT,
+}
+
+
+StrT = Union[str, bytes]
+
+JsonT = Union[StrT, int, float, bool, None, List["JsonT"], Dict[str, "JsonT"]]
+
+SchemaT = Dict[str, JsonT]
+
+type_getter = operator.itemgetter("type")
 
 
 @dataclass
 class StringFormat:
     length_type: LengthType
-    lengths: Optional[Union[Sequence[int], range]] = None
-    return_type: ReturnT = str
+    lengths: Optional[Union[Iterable[int], range]] = None
+    return_type: StrT = str
 
     def validate_constraints(
         self, min_length: int, max_length: Optional[int]
@@ -119,7 +185,200 @@ class StringFormat:
             return True
 
 
-class JSONSchemaProvider(BaseProvider):
+class JsonVal(ObjectProxy):
+    """
+    "At last, I can put a dict in a set..."
+    """
+    def __init__(self, val: JsonT):
+        super().__init__(val)
+        self._self_hash = hash(json.dumps(val))
+
+    def __hash__(self) -> int:
+        return self._self_hash
+
+
+EnumVal = TypeVar("EnumVal", bound=JsonT)
+
+
+class JsonEnum(FrozenSet[JsonVal]):
+    def __new__(cls, values: Iterable[EnumVal]) -> "JsonEnum[EnumVal]":
+        return super().__new__(JsonVal(val) for val in values)
+
+
+def nullable_or_enum(f):
+    """
+    Decorator for `JSONSchemaProvider.<type>_from_schema` methods to
+    handle `nullable` and `enum` properties which are kind of
+    orthogonal to the rest of the types.
+    """
+    @wraps(f)
+    def wrapped(self, schema: SchemaT, *args, **kwargs):
+        if schema.get("nullable") and self.generator.random_int(0, 1):
+            return None
+        if "enum" in schema:
+            return self.jsonschema_enum(JsonEnum(schema["enum"]))
+        return f(self, schema, *args, **kwargs)
+    return wrapped
+
+
+@dataclass
+class Context:
+    _depth: int = 0
+    max_depth: Final[int] = 5
+    max_search: Final[int] = 1250
+    default_collection_max: Final[int] = 50
+
+
+L = TypeVar("L", bound=JsonT)
+R = TypeVar("R", bound=JsonT)
+
+
+def _merge_constraint(
+    left: Optional[L],
+    right: Optional[R],
+    resolver: Callable[[L, R], Union[L, R]],
+) -> Optional[JsonT]:
+    if left is not None:
+        if right is not None:
+            return resolver(left, right)
+        else:
+            return left
+    else:
+        if right is not None:
+            return right
+        else:
+            return None
+
+
+def _resolve_equal_or_error(left: L, right: R) -> L:
+    if left == right:
+        return left
+    else:
+        raise UnsatisfiableConstraintsError
+
+
+def _resolve_multiple_of(left: Number, right: Number) -> Number:
+    if left % right == 0:
+        return left
+    elif right % left == 0:
+        return right
+    else:
+        raise UnsatisfiableConstraintsError
+
+
+def _resolve_properties(
+    left: Dict[str, SchemaT], right: Dict[str, SchemaT]
+) -> Dict[str, SchemaT]:
+    properties = left.copy()
+    for name, schema in right.items():
+        if name in left:
+            properties[name] = _merge_schemas(left[name], schema)
+        else:
+            properties[name] = schema
+    return properties
+
+
+def _merge_schemas(left: SchemaT, right: SchemaT) -> SchemaT:
+    assert left["type"] == right["type"]
+    type_ = TypeName(left["type"])
+    attr_map = TYPE_ATTR_MERGE_RESOLVERS[type_]
+    merged = left.copy()
+    for attr, resolver in attr_map.items():
+        left = left.get(attr)
+        right = right.get(attr)
+        try:
+            val = _merge_constraint(left, right, resolver)
+        except UnsatisfiableConstraintsError as e:
+            raise UnsatisfiableConstraintsError(
+                "Cannot merge incompatible constraints "
+                f"type: {type_}, "
+                f"{attr}: {left} & {attr}: {right}"
+            ) from e
+        merged[attr] = val
+    return merged
+
+
+_numeric_attr_merge_funcs = {
+    "minimum": max,
+    "maximum": min,
+    "exclusiveMin": operator.or_,
+    "exclusiveMax": operator.or_,
+    "multipleOf": _resolve_multiple_of,
+}
+
+TYPE_ATTR_MERGE_RESOLVERS = {
+    TypeName.ARRAY: {
+        "items": _merge_schemas,  # NOTE: relies on OpenAPI homogenous arrays
+        "minItems": max,
+        "maxItems": min,
+        "uniqueItems": operator.or_,
+    },
+    TypeName.OBJECT: {
+        "properties": _resolve_properties,
+        "propertyNames": _merge_schemas,
+        "required": lambda l, r: list(set(l) | set(r)),
+        "additionalProperties": operator.or_,
+        "minProperties": max,
+        "maxProperties": min,
+    },
+    TypeName.NUMBER: _numeric_attr_merge_funcs,
+    TypeName.INTEGER: _numeric_attr_merge_funcs,
+    TypeName.STRING: {
+        "minLength": max,
+        "maxLength": min,
+        # (I can't think of a way to combine arbitrary regexes)
+        "pattern": _resolve_equal_or_error,
+        # (`format`s are likely to be mutually exclusive)
+        "format": _resolve_equal_or_error,
+    },
+}
+
+
+def compound_schema(schemas: Iterable[SchemaT]) -> SchemaT:
+    return reduce(_merge_schemas, schemas)
+
+
+def kwargs_from_schema_factory(method):
+    arg_names = inspect.getfullargspec(method).args
+    snake_case = r"_([a-z])"
+
+    def to_camel_case(match: re.Match) -> str:
+        return f"{match.groups()[0].upper()}"
+
+    getters = {
+        arg: operator.itemgetter(
+            re.sub(snake_case, to_camel_case, arg).rstrip("_")
+        )
+        for arg in arg_names
+        if arg != "self"
+    }
+
+    def kwargs_from_schema(schema: SchemaT) -> Dict[str, JsonT]:
+        kwargs = {}
+        for arg, getter in getters.items():
+            try:
+                kwargs[arg] = getter(schema)
+            except KeyError:
+                pass
+        return kwargs
+
+    return kwargs_from_schema
+
+
+class JSONSchemaProviderMetaclass(type):
+
+    def __new__(cls, name, bases, attrs):
+        cls = type.__new__(cls, name, bases, attrs)
+        # attach pre-generated kwargs-from-schema getters to the
+        # `jsonschema_string` etc methods used by
+        # `jsonschema_basic_type_from_schema`
+        for type_ in BASIC_TYPES:
+            method = getattr(cls, cls.BASE_METHOD_MAP[type_])
+            method.kwargs_from_schema = kwargs_from_schema_factory(method)
+        return cls
+
+
+class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
     STRING_FORMATS = {
         # defined in OpenAPI spec:
@@ -177,6 +436,17 @@ class JSONSchemaProvider(BaseProvider):
 
     FLOAT_OFFSET: Final = float("0.{}1".format("0" * (sys.float_info.dig - 2)))
 
+    BASE_METHOD_MAP = {
+        type_name: "jsonschema_{}".format(type_name.value)
+        for type_name in TypeName
+    }
+
+    _context: Context = None
+
+    def jsonschema_enum(self, enum: JsonEnum) -> JsonT:
+        # enum contains actual values, not sub-schema
+        return self.generator.random_element(enum).__wrapped__
+
     def _format_date(self) -> str:
         return self.generator.date()
 
@@ -228,8 +498,7 @@ class JSONSchemaProvider(BaseProvider):
         max_length: Optional[int] = None,
         pattern: Optional[str] = None,
         format_: Optional[str] = None,
-        max_attempts: int = 1250,
-    ) -> Union[str, bytes]:
+    ) -> StrT:
         """
         Args:
             min_length: we will try to respect this for all strategies
@@ -243,10 +512,6 @@ class JSONSchemaProvider(BaseProvider):
                 without having a formal meaning in the spec. We will attempt to
                 match the format to a faker method (since many of them coincide
                 and it seems useful behaviour)
-            max_attempts: if `pattern` or `format_` are used in conjunction
-                with `min_length` or `max_length` then we have to search for
-                values which meet all constraints. We don't want to search
-                forever so we limit the search attempts.
 
         Raises:
             NoExampleFoundError
@@ -292,21 +557,23 @@ class JSONSchemaProvider(BaseProvider):
         of brute force that could generate examples matching both constraints.
         """
         if min_length < 0:
-            raise ValueError("min_length must be >= 0")
+            raise ValueError("minLength must be >= 0")
         if max_length is not None and max_length < min_length:
-            raise ValueError("max_length must be >= min_length")
+            raise ValueError("maxLength must be >= minLength")
 
-        def valid(val) -> bool:
+        def is_valid(val) -> bool:
             if len(val) < min_length:
                 return False
             if max_length is not None and len(val) > max_length:
                 return False
             return True
 
-        def search(generator) -> str:
-            for _ in range(max_attempts):
+        T = TypeVar("T")
+
+        def search(generator: Callable[..., T]) -> T:
+            for _ in range(self._context.max_search):
                 example = generator()
-                if valid(example):
+                if is_valid(example):
                     break
             else:
                 raise NoExampleFoundError
@@ -322,8 +589,8 @@ class JSONSchemaProvider(BaseProvider):
             except NoExampleFoundError as e:
                 raise NoExampleFoundError(
                     f"Unable to generate any random value that matches "
-                    f"pattern: /{pattern}/ and min_length: {min_length}, "
-                    f"max_length: {max_length} after {max_attempts} attempts."
+                    f"pattern: /{pattern}/ and minLength: {min_length}, "
+                    f"maxLength: {max_length} after {self._context.max_search} attempts."
                 ) from e
         elif format_ is not None:
             # (returns early)
@@ -341,13 +608,13 @@ class JSONSchemaProvider(BaseProvider):
                     except NoExampleFoundError as e:
                         raise UnsatisfiableConstraintsError(
                             f"Unable to generate any random value that matches "
-                            f"format: {format_} and min_length: {min_length}, "
-                            f"max_length: {max_length} after {max_attempts} attempts."
+                            f"format: {format_} and minLength: {min_length}, "
+                            f"maxLength: {max_length} after {self._context.max_search} attempts."
                         ) from e
             else:
                 if not format_type.validate_constraints(min_length, max_length):
                     raise UnsatisfiableConstraintsError(
-                        f"Constraints min_length: {min_length}, max_length: "
+                        f"Constraints minLength: {min_length}, maxLength: "
                         f"{max_length} are incompatible with format: {format_}."
                     )
 
@@ -371,11 +638,11 @@ class JSONSchemaProvider(BaseProvider):
                     except NoExampleFoundError as e:
                         raise UnsatisfiableConstraintsError(
                             f"Unable to generate any random value that matches "
-                            f"format: {format_} and min_length: {min_length}, "
-                            f"max_length: {max_length} after {max_attempts} attempts."
+                            f"format: {format_} and minLength: {min_length}, "
+                            f"maxLength: {max_length} after {self._context.max_search} attempts."
                         ) from e
 
-        if min_length > 5 and not (max_length is not None and max_length < 20):
+        if max_length is None or (max_length and max_length > 20):
             # (returns early)
             # use the "lorem ipsum" provider
             # (...has a min length generatable of 5 chars)
@@ -421,7 +688,7 @@ class JSONSchemaProvider(BaseProvider):
         Also: https://github.com/joke2k/faker/issues/1152  (fixed here)
         """
         if None not in (min_value, max_value) and min_value == max_value:
-            raise ValueError('min_value and max_value cannot be the same')
+            return min_value
         orig_min_value = min_value
         orig_max_value = max_value
 
@@ -463,6 +730,10 @@ class JSONSchemaProvider(BaseProvider):
         else:
             raise TypeError(mode)
 
+        # TODO:
+        # https://json-schema.org/draft-07/json-schema-validation.html#rfc.section.6.2.1
+        # multiple_of must be > 0
+
         original_min = minimum
         original_max = maximum
 
@@ -479,7 +750,7 @@ class JSONSchemaProvider(BaseProvider):
                 raise UnsatisfiableConstraintsError(
                     f"cannot satisfy constraints "
                     f"minimum: {original_min}, maximum: {original_max}, "
-                    f"exclusive_min: {exclusive_min}, exclusive_max: {exclusive_max}"
+                    f"exclusiveMin: {exclusive_min}, exclusiveMax: {exclusive_max}"
                 )
 
         def offset_val(val, op):
@@ -504,7 +775,7 @@ class JSONSchemaProvider(BaseProvider):
                 Decimal(str(minimum)) % Decimal(str(multiple_of)) != 0
             ):
                 raise UnsatisfiableConstraintsError(
-                    f"cannot satisfy constraints multiple_of: {multiple_of}, "
+                    f"cannot satisfy constraints multipleOf: {multiple_of}, "
                     f"minimum: {original_min}, maximum: {original_max}"
                 )
             return _cast(minimum)
@@ -520,7 +791,7 @@ class JSONSchemaProvider(BaseProvider):
         multiple_of = _make_safe(multiple_of)
 
         if multiple_of == 0:
-            raise ValueError("invalid value for multiple_of: 0")
+            raise ValueError("invalid value for multipleOf: 0")
 
         if minimum is None and maximum is None:
             multiple = self.generator.random_int()
@@ -559,9 +830,9 @@ class JSONSchemaProvider(BaseProvider):
             if not valid_range():
                 # range does not include any multiples of `multiple_of`
                 raise UnsatisfiableConstraintsError(
-                    f"cannot satisfy constraints multiple_of: {multiple_of}, "
+                    f"cannot satisfy constraints multipleOf: {multiple_of}, "
                     f"minimum: {original_min}, maximum: {original_max}, "
-                    f"exclusive_min: {exclusive_min}, exclusive_max: {exclusive_max}"
+                    f"exclusiveMin: {exclusive_min}, exclusiveMax: {exclusive_max}"
                 )
 
         def get_range() -> Tuple[int, int]:
@@ -607,3 +878,329 @@ class JSONSchemaProvider(BaseProvider):
             exclusive_max=exclusive_max,
             multiple_of=multiple_of,
         )
+
+    def jsonschema_boolean(self) -> bool:
+        return self.generator.boolean()
+
+    def jsonschema_oneof(self, schemas: Iterable[JsonT]) -> JsonT:
+        schema = self.generator.random_element(schemas)
+        return self._from_schema(schema)
+
+    def jsonschema_anyof(self, schemas: Iterable[JsonT]) -> JsonT:
+        """
+        Group all schemas by type. Randomly choose a type.
+        Randomly combine one or more of the given schemas of that type
+        according to the rules for `allOf`.
+        """
+        schema_map = dict(
+            itertools.groupby(sorted(schemas, key=type_getter), type_getter)
+        )
+        type_ = self.generator.random_element(schema_map.keys())
+        type_schemas = schema_map[type_]
+        sub_schemas = self.generator.random_sample(type_schemas, length=None)
+        schema = compound_schema(sub_schemas)
+        return self._from_schema(schema)
+
+    def jsonschema_allof(self, schemas: Iterable[JsonT]) -> JsonT:
+        """
+        Make a compound schema from all members and return an object
+        satisfying that.
+
+        Even the spec says:
+        "Note that it’s quite easy to create schemas that are logical
+        impossibilities..."
+        I think all mixed-type cases are impossible to satisfy (?)
+
+        If they are all the same type we should AND their validation
+        restrictions together and return for that.
+        """
+        schema_map = dict(
+            itertools.groupby(sorted(schemas, key=type_getter), type_getter)
+        )
+        if len(schema_map) > 1:
+            raise UnsatisfiableConstraintsError(
+                f"Cannot satisfy allOf multiple types: {set(schema_map.keys())}"
+            )
+        schema = compound_schema(schemas)
+        return self._from_schema(schema)
+
+    def _random_type_method(self) -> Tuple[TypeName, Callable]:
+        if self.context._depth < self.context.max_depth:
+            types = BASIC_TYPES
+        else:
+            types = FLAT_TYPES
+        type_ = self.generator.random_element(types)
+        generator = getattr(self, self.BASE_METHOD_MAP[type_])
+        if type_ in NESTED_TYPES:
+            # TODO: I think in some cases we're double descending here
+            # (i.e. the caller of `_random_type_method` already descended)
+            generator = self.descend_into(generator)
+        return type_, generator
+
+    def jsonschema_any(self) -> JsonT:
+        """
+        We should generate a random element of any type. No restrictions.
+        """
+        _, generator = self._random_type_method()
+        return generator()
+
+    def jsonschema_not(self, schema: SchemaT) -> JsonT:
+        """
+        We should generate a random element of any type.
+
+        If the randomly chosen type is the same type as the passed schema then
+        check that it does not match the passed schema, if so regenerate.
+        (TODO: is this what the spec intended?)
+
+        Raises:
+            NoExampleFoundError
+        """
+        def is_valid(val) -> bool:
+            try:
+                validate(val, schema)
+            except ValidationError:
+                return False
+            return True
+
+        T = TypeVar("T")
+
+        def search(generator: Callable[..., T]) -> T:
+            for _ in range(self._context.max_search):
+                example = generator()
+                if not is_valid(example):
+                    # we found a usable example
+                    break
+            else:
+                raise NoExampleFoundError
+            return example
+
+        type_, generator = self._random_type_method()
+
+        if type_ == schema["type"]:
+            try:
+                return search(generator)
+            except NoExampleFoundError as e:
+                raise NoExampleFoundError(
+                    f"Unable to generate any random value that matches "
+                    f"not: /{schema}/ after {self._context.max_search} attempts."
+                ) from e
+        else:
+            return generator()
+
+    def _get_collection_max(self, min_: int):
+        if min_ > self.context.default_collection_max:
+            return self.generator.random_int(
+                min_,
+                min_ + self.context.default_collection_max
+            )
+        else:
+            return self.generator.random_int(
+                min_,
+                self.context.default_collection_max
+            )
+
+    def jsonschema_array(
+        self,
+        items: Optional[SchemaT] = None,
+        min_items: int = 0,
+        max_items: Optional[int] = None,
+        unique_items: bool = False,
+    ) -> List[JsonT]:
+        """
+        NOTE:
+        unlike pure JSON Schema, in OpenAPI arrays must be homogenous
+        and schema is required
+        """
+        if min_items < 0:
+            raise ValueError("minItems must be >= 0")
+        if (
+            max_items is not None and
+            min_items > max_items
+        ):
+            raise ValueError("maxItems must be >= minItems")
+
+        if items is None:
+            type_, _ = self._random_type_method()
+            items = {"type": type_.value}
+
+        if max_items is None:
+            max_items = self._get_collection_max(min_items)
+
+        count = self._safe_random_int(min_items, max_items)
+        dup_count = None
+        if not unique_items and count > 1:
+            dup_count = self.generator.random_int(0, count // 2)
+            count -= dup_count
+
+        generated = [
+            self.descend_into(self._from_schema)(items)
+            for _ in range(count)
+        ]
+        if not unique_items and dup_count:
+            # insert duplicates
+            duplicates = self.generator.random_sample(generated, length=dup_count)
+            generated.extend(duplicates)
+            shuffle(generated)
+
+        return generated
+
+    def jsonschema_object(
+        self,
+        properties: Optional[Dict[str, SchemaT]] = None,
+        property_names: Optional[SchemaT] = None,
+        required: Optional[List[str]] = None,
+        additional_properties: bool = True,
+        min_properties: int = 0,
+        max_properties: Optional[int] = None,
+    ) -> Dict[str, JsonT]:
+        """
+        TODO:
+        more advanced validation rules in JSONSchema:
+        https://json-schema.org/understanding-json-schema/reference/object.html#dependencies
+
+        TODO: readOnly / writeOnly
+        """
+        if min_properties < 0:
+            raise ValueError("minProperties must be >= 0")
+        if (
+            max_properties is not None and
+            min_properties > max_properties
+        ):
+            raise ValueError("maxProperties must be >= minProperties")
+        if (
+            required is not None and
+            min_properties > len(required)
+        ):
+            raise UnsatisfiableConstraintsError(
+                f"Cannot satisfy minProperties: {min_properties} when "
+                f"there are {len(required)} properties in required list."
+            )
+        if (
+            max_properties is not None and
+            required is not None and
+            max_properties < len(required)
+        ):
+            raise UnsatisfiableConstraintsError(
+                f"Cannot satisfy maxProperties: {max_properties} when "
+                f"there are {len(required)} properties in required list."
+            )
+
+        if max_properties is None:
+            max_properties = self._get_collection_max(min_properties)
+
+        properties = properties or {}
+        required = set(required or [])
+        generated = {}
+
+        def generate_values(attrs: Iterable[str]) -> None:
+            for attr in attrs:
+                # NOTE: we use the 'any' schema if not found
+                schema = properties.get(attr, {})
+                val = self.descend_into(self._from_schema)(schema)
+                generated[attr] = val
+
+        # generate 'required' properties
+        if required:
+            generate_values(required)
+
+        # generate random number of 'non-required' properties
+        _count = self.generator.random_int(
+            0, min(len(properties), max_properties) - len(generated)
+        )
+        non_required_attrs = properties.keys() - required
+        if non_required_attrs:
+            sampled_non_required = self.generator.random_sample(
+                properties.keys() - required,
+                length=_count,
+            )
+            generate_values(sampled_non_required)
+
+        # generate 'additional' (not in schema) properties?
+        # TODO: bias towards none or few
+        if additional_properties:
+            _count = self.generator.random_int(
+                0, max_properties - len(generated)
+            )
+            # generate random property names
+            # TODO: bias towards short 'key-like' strings if no schema provided
+            method = (
+                partial(self.jsonschema_string_from_schema, schema=property_names)
+                if property_names
+                else self.jsonschema_string
+            )
+            generated_names = [
+                method()
+                for _ in range(_count)
+            ]
+            generate_values(generated_names)
+
+        return generated
+
+    @nullable_or_enum
+    def jsonschema_basic_type_from_schema(
+        self, schema: SchemaT, type_: TypeName
+    ) -> JsonT:
+        method = getattr(self, self.BASE_METHOD_MAP[type_])
+        return method(**method.kwargs_from_schema(schema))
+
+    @nullable_or_enum
+    def jsonschema_compound_type_from_schema(
+        self, schema: SchemaT, type_: TypeName
+    ) -> JsonT:
+        return getattr(self, self.BASE_METHOD_MAP[type_])(
+            schema[type_.value]
+        )
+
+    @nullable_or_enum
+    def jsonschema_any_from_schema(
+        self, _: SchemaT
+    ) -> Optional[JsonT]:
+        # NOTE: `any` can still be `nullable` (...or `enum`?)
+        # NOTE: `nullable_or_enum` needs the schema arg
+        return self.jsonschema_any()
+
+    def _from_schema(self, schema: SchemaT):
+        """
+        IMPORTANT:
+        All recursive calls should use this private method instead of the
+        public `from_schema` below so that `context._depth` is not reset.
+        """
+        try:
+            type_ = TypeName(schema["type"])
+        except KeyError:
+            for type_ in COMPOUND_TYPES:
+                if type_.value in schema:
+                    return self.jsonschema_compound_type_from_schema(
+                        schema, type_
+                    )
+            else:
+                return self.jsonschema_any_from_schema(schema)
+        else:
+            return self.jsonschema_basic_type_from_schema(schema, type_)
+
+    def descend_into(self, f):
+        @wraps(f)
+        def wrapped(*args, **kwargs):
+            self.context._depth += 1
+            try:
+                return f(*args, **kwargs)
+            finally:
+                self.context._depth -= 1
+        return wrapped
+
+    @property
+    def context(self):
+        if self._context is None:
+            self._context = Context()
+        return self._context
+
+    def from_schema(
+        self,
+        schema: SchemaT,
+        **context
+    ):
+        self._context = Context(**context)
+        try:
+            return self._from_schema(schema)
+        finally:
+            self._context = None
