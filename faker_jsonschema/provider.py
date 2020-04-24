@@ -37,7 +37,7 @@ from .utils import intinf
 TODO: rename as OpenAPI
 
 
-string (this includes dates and files) TODO: generate picture files
+string (this includes dates and files) TODO: generate picture files, see faker.image_url
 number
 integer
 boolean
@@ -157,14 +157,17 @@ class StringFormat:
                     + offset
                     - (min_length % self.lengths.stop)
                 )
-                max_reachable = (
-                    self.lengths.stop
-                    + offset
-                    - (self.lengths.stop % self.lengths.step)
-                    - (self.lengths.step
-                        if self.lengths.stop in self.lengths
-                        else 0)
-                )
+                if self.lengths.stop is intinf:
+                    max_reachable = max_length
+                else:
+                    max_reachable = (
+                        self.lengths.stop
+                        + offset
+                        - (self.lengths.stop % self.lengths.step)
+                        - (self.lengths.step
+                            if self.lengths.stop in self.lengths
+                            else 0)
+                    )
                 return (
                     max_length >= nearest_to_min and
                     max_length >= max_reachable
@@ -227,6 +230,7 @@ class Context:
     max_depth: Final[int] = 5
     max_search: Final[int] = 1250
     default_collection_max: Final[int] = 50
+    default_property_schema = {"type": "string", "format": "user_name"}
 
 
 L = TypeVar("L", bound=JsonT)
@@ -284,17 +288,18 @@ def _merge_schemas(left: SchemaT, right: SchemaT) -> SchemaT:
     attr_map = TYPE_ATTR_MERGE_RESOLVERS[type_]
     merged = left.copy()
     for attr, resolver in attr_map.items():
-        left = left.get(attr)
-        right = right.get(attr)
+        this_left = left.get(attr)
+        this_right = right.get(attr)
         try:
-            val = _merge_constraint(left, right, resolver)
+            val = _merge_constraint(this_left, this_right, resolver)
         except UnsatisfiableConstraintsError as e:
             raise UnsatisfiableConstraintsError(
                 "Cannot merge incompatible constraints "
                 f"type: {type_}, "
-                f"{attr}: {left} & {attr}: {right}"
+                f"{attr}: {this_left} & {attr}: {this_right}"
             ) from e
-        merged[attr] = val
+        if val is not None:
+            merged[attr] = val
     return merged
 
 
@@ -371,7 +376,7 @@ class JSONSchemaProviderMetaclass(type):
         cls = type.__new__(cls, name, bases, attrs)
         # attach pre-generated kwargs-from-schema getters to the
         # `jsonschema_string` etc methods used by
-        # `jsonschema_basic_type_from_schema`
+        # `_jsonschema_basic_type_from_schema`
         for type_ in BASIC_TYPES:
             method = getattr(cls, cls.BASE_METHOD_MAP[type_])
             method.kwargs_from_schema = kwargs_from_schema_factory(method)
@@ -437,7 +442,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
     FLOAT_OFFSET: Final = float("0.{}1".format("0" * (sys.float_info.dig - 2)))
 
     BASE_METHOD_MAP = {
-        type_name: "jsonschema_{}".format(type_name.value)
+        type_name: "jsonschema_{}".format(type_name.value.lower())
         for type_name in TypeName
     }
 
@@ -950,7 +955,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
         If the randomly chosen type is the same type as the passed schema then
         check that it does not match the passed schema, if so regenerate.
-        (TODO: is this what the spec intended?)
+        (Is this what the spec intended? I think it must be because that is
+        what makes most sense from a validation-centric point of view)
 
         Raises:
             NoExampleFoundError
@@ -1085,9 +1091,6 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 f"there are {len(required)} properties in required list."
             )
 
-        if max_properties is None:
-            max_properties = self._get_collection_max(min_properties)
-
         properties = properties or {}
         required = set(required or [])
         generated = {}
@@ -1103,6 +1106,11 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         if required:
             generate_values(required)
 
+        if max_properties is None:
+            max_properties = self._get_collection_max(
+                max(min_properties, len(required))
+            )
+
         # generate random number of 'non-required' properties
         _count = self.generator.random_int(
             0, min(len(properties), max_properties) - len(generated)
@@ -1116,18 +1124,16 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             generate_values(sampled_non_required)
 
         # generate 'additional' (not in schema) properties?
-        # TODO: bias towards none or few
-        if additional_properties:
+        if additional_properties and self.generator.random_int(0, 1):
             _count = self.generator.random_int(
                 0, max_properties - len(generated)
             )
+            # lots of additional_properties just feels weird
+            _count = _count // 3 if _count > 3 else _count
             # generate random property names
-            # TODO: bias towards short 'key-like' strings if no schema provided
-            method = (
-                partial(self.jsonschema_string_from_schema, schema=property_names)
-                if property_names
-                else self.jsonschema_string
-            )
+            if property_names is None:
+                property_names = self.context.default_property_schema
+            method = partial(self._from_schema, schema=property_names)
             generated_names = [
                 method()
                 for _ in range(_count)
@@ -1137,14 +1143,14 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         return generated
 
     @nullable_or_enum
-    def jsonschema_basic_type_from_schema(
+    def _jsonschema_basic_type_from_schema(
         self, schema: SchemaT, type_: TypeName
     ) -> JsonT:
         method = getattr(self, self.BASE_METHOD_MAP[type_])
         return method(**method.kwargs_from_schema(schema))
 
     @nullable_or_enum
-    def jsonschema_compound_type_from_schema(
+    def _jsonschema_compound_type_from_schema(
         self, schema: SchemaT, type_: TypeName
     ) -> JsonT:
         return getattr(self, self.BASE_METHOD_MAP[type_])(
@@ -1152,7 +1158,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         )
 
     @nullable_or_enum
-    def jsonschema_any_from_schema(
+    def _jsonschema_any_from_schema(
         self, _: SchemaT
     ) -> Optional[JsonT]:
         # NOTE: `any` can still be `nullable` (...or `enum`?)
@@ -1170,13 +1176,13 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         except KeyError:
             for type_ in COMPOUND_TYPES:
                 if type_.value in schema:
-                    return self.jsonschema_compound_type_from_schema(
+                    return self._jsonschema_compound_type_from_schema(
                         schema, type_
                     )
             else:
-                return self.jsonschema_any_from_schema(schema)
+                return self._jsonschema_any_from_schema(schema)
         else:
-            return self.jsonschema_basic_type_from_schema(schema, type_)
+            return self._jsonschema_basic_type_from_schema(schema, type_)
 
     def descend_into(self, f):
         @wraps(f)
@@ -1189,10 +1195,14 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         return wrapped
 
     @property
-    def context(self):
+    def context(self) -> Context:
         if self._context is None:
             self._context = Context()
         return self._context
+
+    @context.setter
+    def _(self, context: Context):
+        self._context = context
 
     def from_schema(
         self,
