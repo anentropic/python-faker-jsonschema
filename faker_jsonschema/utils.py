@@ -68,7 +68,11 @@ class IntInf(int):
 
     def __mod__(self, other):
         _validate_numeric("%", other)
-        return math.inf % other
+        return int(math.inf.__mod__(other))
+
+    def __rmod__(self, other):
+        _validate_numeric("%", other)
+        return int(math.inf.__rmod__(other))
 
 
 intinf: Final = IntInf()

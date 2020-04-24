@@ -19,3 +19,10 @@ def faker(record_testsuite_property):
     fake = Faker()
     fake.add_provider(JSONSchemaProvider)
     return fake
+
+
+@pytest.fixture(scope="session")
+def repeats(record_testsuite_property):
+    count = 10
+    record_testsuite_property("REPEATS", count)
+    return count
