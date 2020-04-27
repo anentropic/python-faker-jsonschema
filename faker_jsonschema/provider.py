@@ -228,7 +228,7 @@ def nullable_or_enum(f):
 class Context:
     _depth: int = 0
     max_depth: Final[int] = 5
-    max_search: Final[int] = 1250
+    max_search: Final[int] = 500
     default_collection_max: Final[int] = 50
     default_property_schema = {"type": "string", "format": "user_name"}
 
@@ -520,6 +520,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
         Raises:
             NoExampleFoundError
+            UnsatifiableConstraintsError
+            ValueError
 
         String length can be restricted using `min_length` and `max_length`.
 
