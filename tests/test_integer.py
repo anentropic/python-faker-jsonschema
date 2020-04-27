@@ -22,7 +22,7 @@ def test_jsonschema_integer_invalid_exclusive_range(
     faker, exclusive_min, exclusive_max
 ):
     if True in (exclusive_min, exclusive_max):
-        with pytest.raises(ValueError):
+        with pytest.raises(UnsatisfiableConstraintsError):
             faker.jsonschema_integer(
                 minimum=5,
                 maximum=5,
@@ -40,7 +40,6 @@ def test_jsonschema_integer_invalid_exclusive_range(
         assert result == 5
 
 
-@pytest.mark.flaky(max_runs=25, min_passes=25)
 @pytest.mark.parametrize(
     "minimum,maximum,exclusive_min,exclusive_max",
     itertools.product(
@@ -51,23 +50,24 @@ def test_jsonschema_integer_invalid_exclusive_range(
     )
 )
 def test_jsonschema_integer_exclusive_range(
-    faker, minimum, maximum, exclusive_min, exclusive_max
+    faker, repeats_for_fast, minimum, maximum, exclusive_min, exclusive_max
 ):
-    result = faker.jsonschema_integer(
-        minimum=minimum,
-        maximum=maximum,
-        exclusive_min=exclusive_min,
-        exclusive_max=exclusive_max,
-    )
-    assert isinstance(result, int)
-    if exclusive_min:
-        assert result > minimum
-    else:
-        assert result >= minimum
-    if exclusive_max:
-        assert result < maximum
-    else:
-        assert result <= maximum
+    for _ in range(repeats_for_fast):
+        result = faker.jsonschema_integer(
+            minimum=minimum,
+            maximum=maximum,
+            exclusive_min=exclusive_min,
+            exclusive_max=exclusive_max,
+        )
+        assert isinstance(result, int)
+        if exclusive_min:
+            assert result > minimum
+        else:
+            assert result >= minimum
+        if exclusive_max:
+            assert result < maximum
+        else:
+            assert result <= maximum
 
 
 @pytest.mark.parametrize(

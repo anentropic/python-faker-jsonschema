@@ -7,6 +7,7 @@ from jsonschema import validate
     (
         {},
         {"type": "string"},
+        {"type": "number"},
         # example from "petstore-expanded.yml"...
         {
             "allOf": [
@@ -30,9 +31,9 @@ from jsonschema import validate
     )
 )
 def test_jsonschema_array_from_schema(
-    faker, repeats, schema
+    faker, repeats_for_slow, schema
 ):
-    for _ in range(repeats):
+    for _ in range(repeats_for_slow):
         result = faker.jsonschema_array(items=schema)
         assert isinstance(result, list)
         for item in result:

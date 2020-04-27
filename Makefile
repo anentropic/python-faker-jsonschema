@@ -15,7 +15,7 @@ typecheck:
 	pytype faker_jsonschema
 
 pytest:
-	py.test -v -s --pdb --pdbcls=IPython.terminal.debugger:TerminalPdb tests/
+	py.test -v -s tests/
 
 test:
 	$(MAKE) typecheck

@@ -22,7 +22,14 @@ def faker(record_testsuite_property):
 
 
 @pytest.fixture(scope="session")
-def repeats(record_testsuite_property):
+def repeats_for_slow(record_testsuite_property):
     count = 10
+    record_testsuite_property("REPEATS", count)
+    return count
+
+
+@pytest.fixture(scope="session")
+def repeats_for_fast(record_testsuite_property):
+    count = 50
     record_testsuite_property("REPEATS", count)
     return count

@@ -63,7 +63,6 @@ def test_jsonschema_number_invalid_exclusive_range(
         assert result == 5
 
 
-@pytest.mark.flaky(max_runs=25, min_passes=25)
 @pytest.mark.parametrize(
     "minimum,maximum,exclusive_min,exclusive_max",
     itertools.product(
@@ -74,23 +73,24 @@ def test_jsonschema_number_invalid_exclusive_range(
     )
 )
 def test_jsonschema_number_exclusive_range(
-    faker, minimum, maximum, exclusive_min, exclusive_max
+    faker, repeats_for_fast, minimum, maximum, exclusive_min, exclusive_max
 ):
-    result = faker.jsonschema_number(
-        minimum=minimum,
-        maximum=maximum,
-        exclusive_min=exclusive_min,
-        exclusive_max=exclusive_max,
-    )
-    assert isinstance(result, float)
-    if exclusive_min:
-        assert result > minimum
-    else:
-        assert result >= minimum
-    if exclusive_max:
-        assert result < maximum
-    else:
-        assert result <= maximum
+    for _ in range(repeats_for_fast):
+        result = faker.jsonschema_number(
+            minimum=minimum,
+            maximum=maximum,
+            exclusive_min=exclusive_min,
+            exclusive_max=exclusive_max,
+        )
+        assert isinstance(result, float)
+        if exclusive_min:
+            assert result > minimum
+        else:
+            assert result >= minimum
+        if exclusive_max:
+            assert result < maximum
+        else:
+            assert result <= maximum
 
 
 @pytest.mark.parametrize(
