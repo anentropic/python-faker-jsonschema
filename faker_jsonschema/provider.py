@@ -24,6 +24,7 @@ from typing import (
     Union,
 )
 
+import js_regex
 import pytz
 from jsonschema import validate, ValidationError
 from faker.providers import BaseProvider
@@ -589,7 +590,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         if pattern is not None:
             # (returns early)
             # NOTE: `format` is ignored if `pattern` is given
-            regex_st = st.from_regex(pattern)
+            _js_pattern = js_regex.compile(pattern)
+            regex_st = st.from_regex(_js_pattern)
             try:
                 # TODO suppress warning from Hypothesis
                 return search(regex_st.example)
@@ -1016,8 +1018,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
     ) -> List[JsonT]:
         """
         NOTE:
-        unlike pure JSON Schema, in OpenAPI arrays must be homogenous
-        and schema is required
+        unlike pure JSON Schema, OpenAPI arrays must be homogenous and
+        `items` schema is required
         """
         if min_items < 0:
             raise ValueError("minItems must be >= 0")
@@ -1035,18 +1037,27 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             max_items = self._get_collection_max(min_items)
 
         count = self._safe_random_int(min_items, max_items)
-        dup_count = None
+        dup_count = 0
         if not unique_items and count > 1:
             dup_count = self.generator.random_int(0, count // 2)
             count -= dup_count
 
-        generated = [
-            self.descend_into(self._from_schema)(items)
-            for _ in range(count)
-        ]
-        if not unique_items and dup_count:
+        generated = []
+        duplicates = []
+        while len(generated) < count:
+            item = self.descend_into(self._from_schema)(items)
+            if unique_items and item in generated:
+                if len(duplicates) < dup_count:
+                    duplicates.append(item)
+            else:
+                generated.append(item)
+
+        if not unique_items:
             # insert duplicates
-            duplicates = self.generator.random_sample(generated, length=dup_count)
+            if len(duplicates) < dup_count:
+                diff = dup_count - len(duplicates)
+                top_up = self.generator.random_sample(generated, length=diff)
+                duplicates.extend(top_up)
             generated.extend(duplicates)
             shuffle(generated)
 
@@ -1084,6 +1095,15 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 f"there are {len(required)} properties in required list."
             )
         if (
+            not additional_properties and
+            min_properties > len(properties or {})
+        ):
+            raise UnsatisfiableConstraintsError(
+                f"Cannot satisfy minProperties: {min_properties} when "
+                f"there are {len(properties or {})} properties in schema and "
+                f"additionalProperties is False."
+            )
+        if (
             max_properties is not None and
             required is not None and
             max_properties < len(required)
@@ -1093,6 +1113,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 f"there are {len(required)} properties in required list."
             )
 
+        og_max_properties = max_properties
         properties = properties or {}
         required = set(required or [])
         generated = {}
@@ -1114,28 +1135,44 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             )
 
         # generate random number of 'non-required' properties
-        _count = self.generator.random_int(
-            0, min(len(properties), max_properties) - len(generated)
-        )
-        non_required_attrs = properties.keys() - required
-        if non_required_attrs:
-            sampled_non_required = self.generator.random_sample(
-                properties.keys() - required,
-                length=_count,
-            )
-            generate_values(sampled_non_required)
+        # (but NOT `additionalProperties`)
+        assert len(generated) <= max_properties
+        min_needed = 0
+        _diff = min_properties - len(generated)
+        if _diff > 0:
+            min_needed = _diff
+        _max_gen = min(len(properties), max_properties) - len(generated)
+        if _max_gen > min_needed:
+            _count = self.generator.random_int(min_needed, _max_gen)
+            non_required_attrs = properties.keys() - required
+            if non_required_attrs:
+                sampled_non_required = self.generator.random_sample(
+                    properties.keys() - required,
+                    length=_count,
+                )
+                generate_values(sampled_non_required)
+                min_needed -= _count
 
         # generate 'additional' (not in schema) properties?
-        if additional_properties and self.generator.random_int(0, 1):
+        if (
+            additional_properties and
+            (min_needed > 0 or self.generator.random_int(0, 1))
+        ):
             _count = self.generator.random_int(
-                0, max_properties - len(generated)
+                min_needed, max_properties - len(generated)
             )
-            # lots of additional_properties just feels weird
-            _count = _count // 3 if _count > 3 else _count
+            if og_max_properties is None:
+                # lots of additional_properties just feels weird
+                _surplus = _count - min_needed
+                _surplus = _surplus // 3 if _surplus > 3 else _surplus
+                _count = min_needed + _surplus
+
             # generate random property names
             if property_names is None:
                 property_names = self.context.default_property_schema
-            method = partial(self._from_schema, schema=property_names)
+            _schema = {"type": "string"}
+            _schema.update(property_names)
+            method = partial(self._from_schema, schema=_schema)
             generated_names = [
                 method()
                 for _ in range(_count)

@@ -197,6 +197,14 @@ testing = ["colorama (0.4.1)", "docopt", "pytest (>=3.9.0,<5.0.0)"]
 
 [[package]]
 category = "main"
+description = "A thin compatibility layer to use Javascript regular expressions in Python"
+name = "js-regex"
+optional = false
+python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
+version = "1.0.1"
+
+[[package]]
+category = "main"
 description = "An implementation of JSON Schema validation for Python"
 name = "jsonschema"
 optional = false
@@ -533,7 +541,7 @@ docs = ["sphinx", "jaraco.packaging (>=3.2)", "rst.linker (>=1.9)"]
 testing = ["jaraco.itertools", "func-timeout"]
 
 [metadata]
-content-hash = "3503633e07499da92c50dadb51a351f3bfd732897afb87b766d8257351b0356c"
+content-hash = "b7a45d20fd689a38cf621f36bbbdd25f19898273eadee2adfe50a15656bd6721"
 python-versions = "^3.7,<3.8"
 
 [metadata.files]
@@ -594,6 +602,10 @@ ipython-genutils = [
 jedi = [
     {file = "jedi-0.16.0-py2.py3-none-any.whl", hash = "sha256:b4f4052551025c6b0b0b193b29a6ff7bdb74c52450631206c262aef9f7159ad2"},
     {file = "jedi-0.16.0.tar.gz", hash = "sha256:d5c871cb9360b414f981e7072c52c33258d598305280fef91c6cae34739d65d5"},
+]
+js-regex = [
+    {file = "js-regex-1.0.1.tar.gz", hash = "sha256:de27bbf11b135a9cc7b03fc35f586705e286d6cd4fbbe112eaa577ed1c82a69f"},
+    {file = "js_regex-1.0.1-py3-none-any.whl", hash = "sha256:08e4181bba68878bb2b29ff275f734a34ac2a4fed706977365d1aa527273e5a7"},
 ]
 jsonschema = [
     {file = "jsonschema-3.2.0-py2.py3-none-any.whl", hash = "sha256:4e5b3cf8216f577bee9ce139cbe72eca3ea4f292ec60928ff24758ce626cd163"},
