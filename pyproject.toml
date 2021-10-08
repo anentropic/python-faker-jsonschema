@@ -5,7 +5,7 @@ description = ""
 authors = ["Anentropic <ego@anentropic.com>"]
 
 [tool.poetry.dependencies]
-python = "^3.7,<3.8"
+python = "^3.7"
 faker = "^4.0.2"
 hypothesis = "^5.8.0"
 typing_extensions = "^3.7.4"
