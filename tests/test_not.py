@@ -1,13 +1,13 @@
 """Tests for jsonschema_not() — 'not' schemas."""
 
 import pytest
-from jsonschema import validate, ValidationError
+from jsonschema import ValidationError, validate
 
 from faker_jsonschema.provider import NoExampleFoundError
 
 
 def test_jsonschema_not_constrained_string(faker, repeats_for_slow):
-    """not a constrained string → value should not match the constraints."""
+    """Not a constrained string → value should not match the constraints."""
     # Use a constrained schema so there's a chance of generating non-matching values
     not_schema = {"type": "string", "minLength": 10, "maxLength": 20}
     schema = {"not": not_schema}
@@ -25,7 +25,7 @@ def test_jsonschema_not_constrained_string(faker, repeats_for_slow):
 
 
 def test_jsonschema_not_type_integer(faker, repeats_for_slow):
-    """not a constrained integer → value should not match the constraints."""
+    """Not a constrained integer → value should not match the constraints."""
     not_schema = {"type": "integer", "minimum": 0, "maximum": 10}
     schema = {"not": not_schema}
     successes = 0
@@ -54,7 +54,7 @@ def test_jsonschema_not_type_boolean(faker, repeats_for_slow):
 
 
 def test_jsonschema_not_type_number(faker, repeats_for_slow):
-    """not a number schema → result should fail validation against it."""
+    """Not a number schema → result should fail validation against it."""
     not_schema = {"type": "number", "minimum": 0, "maximum": 100}
     schema = {"not": not_schema}
     successes = 0

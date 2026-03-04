@@ -5,7 +5,6 @@ from jsonschema import validate
 
 from faker_jsonschema.provider import UnsatisfiableConstraintsError
 
-
 # ── Basic $ref/$defs ─────────────────────────────────────────────────
 
 

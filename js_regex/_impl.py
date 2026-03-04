@@ -1,7 +1,5 @@
 """The implementation of the js-regex library."""
 
-from __future__ import unicode_literals
-
 import re
 
 try:
@@ -13,42 +11,42 @@ except ImportError:
     import sre_constants  # type: ignore[no-redef]
     import sre_parse  # type: ignore[no-redef]
 
+from collections.abc import Iterable
 from copy import deepcopy
 from functools import lru_cache
+from re import Pattern
 from sys import version_info as python_version
-from typing import Any, Iterable, List, Optional, Pattern, Tuple, Union, cast
+from typing import Any, cast
 
 
 class NotJavascriptRegex(ValueError):
     """The pattern uses Python regex features that do not exist in Javascript."""
 
 
-SubNodeT = Tuple[sre_constants._NamedIntConstant, int]
+SubNodeT = tuple[sre_constants._NamedIntConstant, int]
 
-ParsedCharClassT = List[SubNodeT]
+ParsedCharClassT = list[SubNodeT]
 
-ParsedNodeT = Union[
-    ParsedCharClassT,
-    Tuple[None, List[sre_parse.SubPattern]],
-    Iterable[sre_parse.SubPattern],
-    Tuple[int, sre_parse.SubPattern, sre_parse.SubPattern],
-    Tuple[Optional[int], int, int, sre_parse.SubPattern],
-]
+ParsedNodeT = (
+    ParsedCharClassT
+    | tuple[None, list[sre_parse.SubPattern]]
+    | Iterable[sre_parse.SubPattern]
+    | tuple[int, sre_parse.SubPattern, sre_parse.SubPattern]
+    | tuple[int | None, int, int, sre_parse.SubPattern]
+)
 
-SubPatternT = Union[sre_parse.SubPattern, List[sre_parse.SubPattern], SubNodeT]
+SubPatternT = sre_parse.SubPattern | list[sre_parse.SubPattern] | SubNodeT
 
-ElementT = Tuple[sre_constants._NamedIntConstant, ParsedNodeT]
+ElementT = tuple[sre_constants._NamedIntConstant, ParsedNodeT]
 
-SubElementT = Union[sre_parse.SubPattern, ElementT]
+SubElementT = sre_parse.SubPattern | ElementT
 
 
 def ast_sub_in(
-    subpattern: SubPatternT, target: SubNodeT, replacements: List[SubNodeT]
+    subpattern: SubPatternT, target: SubNodeT, replacements: list[SubNodeT]
 ) -> None:
-    """
-    in-place substitution for an IN clause member (i.e. character class)
-    """
-    for i, el in enumerate(cast(Iterable, subpattern)):
+    """in-place substitution for an IN clause member (i.e. character class)."""
+    for i, el in enumerate(cast("Iterable", subpattern)):
         if isinstance(el, tuple) and el[0] is sre_constants.IN:
             assert isinstance(subpattern, sre_parse.SubPattern)
             in_list = el[1]
@@ -58,27 +56,25 @@ def ast_sub_in(
                     for repl in reversed(replacements):
                         in_list.insert(i, repl)
         elif isinstance(el, (list, tuple, sre_parse.SubPattern)):
-            ast_sub_in(cast(SubPatternT, el), target, replacements)
+            ast_sub_in(cast("SubPatternT", el), target, replacements)
 
 
 def ast_sub_el(
     subpattern: SubPatternT, target: SubElementT, replacement: SubElementT
 ) -> None:
-    """
-    in-place substitution for a single SubPattern member
-    """
-    for i, el in enumerate(cast(Iterable, subpattern)):
+    """in-place substitution for a single SubPattern member."""
+    for i, el in enumerate(cast("Iterable", subpattern)):
         if el == target:
-            cast(sre_parse.SubPattern, subpattern)[i] = cast(ElementT, replacement)
+            cast("sre_parse.SubPattern", subpattern)[i] = cast("ElementT", replacement)
         elif isinstance(el, (list, tuple, sre_parse.SubPattern)):
-            ast_sub_el(cast(SubPatternT, el), target, replacement)
+            ast_sub_el(cast("SubPatternT", el), target, replacement)
 
 
 def _prepare_and_parse(pattern: str, flags: int = 0) -> sre_parse.SubPattern:
-    if not isinstance(pattern, (str, type(""))):
-        raise TypeError("pattern={!r} must be a unicode string".format(pattern))
+    if not isinstance(pattern, (str, str)):
+        raise TypeError(f"pattern={pattern!r} must be a unicode string")
     if not isinstance(flags, int):
-        raise TypeError("flags={!r} must be an integer".format(flags))
+        raise TypeError(f"flags={flags!r} must be an integer")
     # Check that the supplied flags are legal in both Python and JS.  See
     # https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp#Parameters
     # and the list of flags at https://docs.python.org/3/library/re.html#re.compile
@@ -103,21 +99,21 @@ def _prepare_and_parse(pattern: str, flags: int = 0) -> sre_parse.SubPattern:
     try:
         parsed = sre_parse.parse(pattern, flags=flags)
     except re.error as e:
-        raise re.error("{} in pattern={!r}".format(e, pattern))
+        raise re.error(f"{e} in pattern={pattern!r}") from e
     check_features(parsed, flags=flags, pattern=pattern)
 
     # Check for comments - with `in` because don't appear in the parse tree.
     if re.search(r"\(\?\#[^)]*\)", pattern):
         raise NotJavascriptRegex(
             "'(?#comment)' groups are ignored by Python, but have no meaning in "
-            "Javascript regular expressions (pattern={!r})".format(pattern)
+            f"Javascript regular expressions (pattern={pattern!r})"
         )
 
     def ast_charclass_from_str(pattern: str) -> ParsedCharClassT:
         subpattern = sre_parse.parse(pattern, flags=flags)
         assert subpattern[0][0] is sre_constants.IN
         char_class = subpattern[0][1]
-        return cast(ParsedCharClassT, char_class)
+        return cast("ParsedCharClassT", char_class)
 
     # we have to deepcopy(parsed) to avoid a weird interaction with python `re`
     # constants must pass an `is` check in sre_compile (can't replace with int)
@@ -152,7 +148,8 @@ def _prepare_and_parse(pattern: str, flags: int = 0) -> sre_parse.SubPattern:
         (
             ast_charclass_from_str(r"\s")[0],
             ast_charclass_from_str(
-                r"[ \f\n\r\t\v\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]"
+                r"[ \f\n\r\t\v\u00a0\u1680"
+                r"\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]"
             ),
         ),
         (
@@ -176,7 +173,8 @@ def _prepare_and_parse(pattern: str, flags: int = 0) -> sre_parse.SubPattern:
 
 @lru_cache(maxsize=512)  # Matches the internal cache size for re.compile
 def compile(pattern: str, flags: int = 0) -> Pattern[str]:
-    """Compile the given string, treated as a Javascript regex.
+    """
+    Compile the given string, treated as a Javascript regex.
 
     This aims to match all strings that would be matched in JS, and as few
     additional strings as possible.  Where possible it will also warn if the
@@ -192,7 +190,10 @@ def compile(pattern: str, flags: int = 0) -> Pattern[str]:
 
 
 def check_features(parsed: Any, flags: int, pattern: str) -> None:
-    """Recursively walk through a SRE regex parse tree to check that every
+    """
+    Check that every node uses features also available in JavaScript.
+
+    Recursively walk through a SRE regex parse tree to check that every
     node is for a feature that also exists in Javascript regular expressions.
 
     `parsed` is either a list of SRE regex elements representations or a
@@ -244,20 +245,18 @@ def check_features(parsed: Any, flags: int, pattern: str) -> None:
             if value == sre_constants.AT_BEGINNING_STRING:
                 raise NotJavascriptRegex(
                     r"\A is not valid in Javascript regular expressions - "
-                    "use ^ instead (pattern={!r})".format(pattern)
+                    f"use ^ instead (pattern={pattern!r})"
                 )
             if value == sre_constants.AT_END_STRING:
                 raise NotJavascriptRegex(
                     r"\Z is not valid in Javascript regular expressions - "
-                    "use $ instead (pattern={!r})".format(pattern)
+                    f"use $ instead (pattern={pattern!r})"
                 )
         elif code == sre_constants.GROUPREF_EXISTS:
             # Regex '(?(id/name)yes-pattern|no-pattern)' (if group exists choice)
             raise NotJavascriptRegex(
                 "Javascript regular expressions do not support if-group-exists choice, "
-                "like `'(?(id/name)yes-pattern|no-pattern)'` (pattern={!r})".format(
-                    pattern
-                )
+                f"like `'(?(id/name)yes-pattern|no-pattern)'` (pattern={pattern!r})"
             )
         else:
             assert code in [

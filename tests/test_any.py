@@ -2,7 +2,6 @@
 
 from jsonschema import validate
 
-
 # ── Direct calls ─────────────────────────────────────────────────────
 
 

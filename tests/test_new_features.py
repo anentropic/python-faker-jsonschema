@@ -1,6 +1,9 @@
-"""Tests for new JSON Schema features: type arrays, boolean schemas,
-const, if/then/else, legacy dependencies, new string formats,
-contentEncoding, and draft-06+ exclusiveMinimum/exclusiveMaximum."""
+"""
+Tests for new JSON Schema features.
+
+Type arrays, boolean schemas, const, if/then/else, legacy dependencies,
+new string formats, contentEncoding, and draft-06+ exclusiveMinimum/exclusiveMaximum.
+"""
 
 import re
 
@@ -8,7 +11,6 @@ import pytest
 from jsonschema import validate
 
 from faker_jsonschema.provider import UnsatisfiableConstraintsError
-
 
 # ── Type as array (draft-06+) ────────────────────────────────────────
 
@@ -86,7 +88,7 @@ def test_empty_schema_as_true(faker, repeats_for_fast):
 
 
 def test_const_string(faker, repeats_for_fast):
-    """const with string → always returns that exact string."""
+    """Const with string → always returns that exact string."""
     schema = {"const": "hello"}
     for _ in range(repeats_for_fast):
         result = faker.from_schema(schema)
@@ -95,7 +97,7 @@ def test_const_string(faker, repeats_for_fast):
 
 
 def test_const_integer(faker, repeats_for_fast):
-    """const with integer → always returns that integer."""
+    """Const with integer → always returns that integer."""
     schema = {"const": 42}
     for _ in range(repeats_for_fast):
         result = faker.from_schema(schema)
@@ -104,7 +106,7 @@ def test_const_integer(faker, repeats_for_fast):
 
 
 def test_const_null(faker, repeats_for_fast):
-    """const with null → always returns None."""
+    """Const with null → always returns None."""
     schema = {"const": None}
     for _ in range(repeats_for_fast):
         result = faker.from_schema(schema)
@@ -113,7 +115,7 @@ def test_const_null(faker, repeats_for_fast):
 
 
 def test_const_object(faker, repeats_for_fast):
-    """const with object → always returns that exact object."""
+    """Const with object → always returns that exact object."""
     schema = {"const": {"key": "value"}}
     for _ in range(repeats_for_fast):
         result = faker.from_schema(schema)
@@ -122,7 +124,7 @@ def test_const_object(faker, repeats_for_fast):
 
 
 def test_const_array(faker, repeats_for_fast):
-    """const with array → always returns that exact array."""
+    """Const with array → always returns that exact array."""
     schema = {"const": [1, 2, 3]}
     for _ in range(repeats_for_fast):
         result = faker.from_schema(schema)
@@ -176,7 +178,7 @@ def test_if_else_only(faker, repeats_for_fast):
 
 
 def test_exclusive_minimum_numeric_integer(faker, repeats_for_fast):
-    """exclusiveMinimum as number (draft-06+) for integers."""
+    """ExclusiveMinimum as number (draft-06+) for integers."""
     schema = {"type": "integer", "exclusiveMinimum": 5, "maximum": 10}
     for _ in range(repeats_for_fast):
         result = faker.from_schema(schema)
@@ -187,7 +189,7 @@ def test_exclusive_minimum_numeric_integer(faker, repeats_for_fast):
 
 
 def test_exclusive_maximum_numeric_integer(faker, repeats_for_fast):
-    """exclusiveMaximum as number (draft-06+) for integers."""
+    """ExclusiveMaximum as number (draft-06+) for integers."""
     schema = {"type": "integer", "minimum": 5, "exclusiveMaximum": 10}
     for _ in range(repeats_for_fast):
         result = faker.from_schema(schema)
@@ -208,7 +210,7 @@ def test_exclusive_both_numeric_integer(faker, repeats_for_fast):
 
 
 def test_exclusive_minimum_numeric_number(faker, repeats_for_fast):
-    """exclusiveMinimum as number (draft-06+) for floats."""
+    """ExclusiveMinimum as number (draft-06+) for floats."""
     schema = {"type": "number", "exclusiveMinimum": 1.0, "maximum": 5.0}
     for _ in range(repeats_for_fast):
         result = faker.from_schema(schema)
@@ -219,7 +221,7 @@ def test_exclusive_minimum_numeric_number(faker, repeats_for_fast):
 
 
 def test_exclusive_maximum_numeric_number(faker, repeats_for_fast):
-    """exclusiveMaximum as number (draft-06+) for floats."""
+    """ExclusiveMaximum as number (draft-06+) for floats."""
     schema = {"type": "number", "minimum": 1.0, "exclusiveMaximum": 5.0}
     for _ in range(repeats_for_fast):
         result = faker.from_schema(schema)
@@ -459,7 +461,7 @@ def test_content_encoding_base64_direct(faker, repeats_for_fast):
 
 
 def test_prefix_items_basic(faker, repeats_for_slow):
-    """prefixItems with different types for each position."""
+    """PrefixItems with different types for each position."""
     schema = {
         "type": "array",
         "prefixItems": [
@@ -480,7 +482,7 @@ def test_prefix_items_basic(faker, repeats_for_slow):
 
 
 def test_prefix_items_with_additional(faker, repeats_for_slow):
-    """prefixItems with items schema for additional items."""
+    """PrefixItems with items schema for additional items."""
     schema = {
         "type": "array",
         "prefixItems": [
@@ -523,7 +525,7 @@ def test_prefix_items_direct(faker, repeats_for_slow):
 
 
 def test_contains_basic(faker, repeats_for_slow):
-    """contains → at least one item matches."""
+    """Contains → at least one item matches."""
     schema = {
         "type": "array",
         "items": {"type": "integer", "minimum": 0, "maximum": 100},
@@ -539,7 +541,7 @@ def test_contains_basic(faker, repeats_for_slow):
 
 
 def test_min_contains(faker, repeats_for_slow):
-    """minContains → at least N items match contains."""
+    """MinContains → at least N items match contains."""
     schema = {
         "type": "array",
         "items": {"type": "integer", "minimum": 0, "maximum": 100},
@@ -590,7 +592,7 @@ def test_additional_items_false(faker, repeats_for_slow):
 
 
 def test_additional_items_schema(faker, repeats_for_slow):
-    """additionalItems as schema → extra items match that schema."""
+    """AdditionalItems as schema → extra items match that schema."""
     for _ in range(repeats_for_slow):
         result = faker.jsonschema_array(
             prefix_items=[

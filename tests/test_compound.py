@@ -5,12 +5,11 @@ from jsonschema import validate
 
 from faker_jsonschema.provider import UnsatisfiableConstraintsError
 
-
 # ── oneOf ────────────────────────────────────────────────────────────
 
 
 def test_oneof_string_or_integer(faker, repeats_for_slow):
-    """oneOf with string | integer → result matches exactly one."""
+    """OneOf with string | integer → result matches exactly one."""
     schema = {
         "oneOf": [
             {"type": "string"},
@@ -24,7 +23,7 @@ def test_oneof_string_or_integer(faker, repeats_for_slow):
 
 
 def test_oneof_multiple_object_schemas(faker, repeats_for_slow):
-    """oneOf with distinct object schemas."""
+    """OneOf with distinct object schemas."""
     schema = {
         "oneOf": [
             {
@@ -71,7 +70,7 @@ def test_oneof_direct_call(faker, repeats_for_slow):
 
 
 def test_anyof_string_or_integer(faker, repeats_for_slow):
-    """anyOf with string | integer → result matches at least one."""
+    """AnyOf with string | integer → result matches at least one."""
     schema = {
         "anyOf": [
             {"type": "string"},
@@ -85,7 +84,7 @@ def test_anyof_string_or_integer(faker, repeats_for_slow):
 
 
 def test_anyof_same_type_merges_constraints(faker, repeats_for_slow):
-    """anyOf with multiple schemas of same type → constraints are merged."""
+    """AnyOf with multiple schemas of same type → constraints are merged."""
     schema = {
         "anyOf": [
             {"type": "integer", "minimum": 0, "maximum": 100},
@@ -99,7 +98,7 @@ def test_anyof_same_type_merges_constraints(faker, repeats_for_slow):
 
 
 def test_anyof_three_schemas(faker, repeats_for_slow):
-    """anyOf with three sub-schemas."""
+    """AnyOf with three sub-schemas."""
     schema = {
         "anyOf": [
             {"type": "string"},
@@ -134,7 +133,7 @@ def test_anyof_direct_call(faker, repeats_for_slow):
 
 
 def test_allof_multi_type_raises(faker):
-    """allOf with incompatible types raises UnsatisfiableConstraintsError."""
+    """AllOf with incompatible types raises UnsatisfiableConstraintsError."""
     schema = {
         "allOf": [
             {"type": "string"},
@@ -146,7 +145,7 @@ def test_allof_multi_type_raises(faker):
 
 
 def test_allof_merged_integer_constraints(faker, repeats_for_fast):
-    """allOf merging integer constraints (min/max tightened)."""
+    """AllOf merging integer constraints (min/max tightened)."""
     schema = {
         "allOf": [
             {"type": "integer", "minimum": 0, "maximum": 100},
@@ -161,7 +160,7 @@ def test_allof_merged_integer_constraints(faker, repeats_for_fast):
 
 
 def test_allof_merged_string_constraints(faker, repeats_for_fast):
-    """allOf merging string constraints."""
+    """AllOf merging string constraints."""
     schema = {
         "allOf": [
             {"type": "string", "minLength": 5, "maxLength": 20},

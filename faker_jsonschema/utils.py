@@ -1,6 +1,5 @@
 import math
 from decimal import Decimal
-
 from typing import Final
 
 
@@ -14,9 +13,9 @@ def _validate_numeric(op, other):
 
 class IntInf(int):
     """
-    This only exists so we can pass an unlimited `max_examples` setting
-    to hypothesis, it has to pass an `isinstance(intinf, int)` check and basic
-    comparison checks.
+    Unbounded integer for hypothesis `max_examples` setting.
+
+    Passes `isinstance(intinf, int)` and basic comparison checks.
 
     For a more comprehensive implementation see:
     https://github.com/NeilGirdhar/extended_int

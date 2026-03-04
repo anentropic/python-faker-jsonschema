@@ -4,7 +4,6 @@ from jsonschema import validate
 
 from faker_jsonschema.provider import JsonEnum, JsonVal
 
-
 # ── JsonVal / JsonEnum utility tests ─────────────────────────────────
 
 
@@ -93,7 +92,7 @@ def test_nullable_object(faker, repeats_for_slow):
 
 
 def test_enum_integer(faker, repeats_for_fast):
-    """enum on integer type → always one of the enum values."""
+    """Enum on integer type → always one of the enum values."""
     schema = {"type": "integer", "enum": [1, 2, 3]}
     for _ in range(repeats_for_fast):
         result = faker.from_schema(schema)
@@ -102,7 +101,7 @@ def test_enum_integer(faker, repeats_for_fast):
 
 
 def test_enum_string(faker, repeats_for_fast):
-    """enum on string type → always one of the enum values."""
+    """Enum on string type → always one of the enum values."""
     schema = {"type": "string", "enum": ["hello", "world", "foo"]}
     for _ in range(repeats_for_fast):
         result = faker.from_schema(schema)
@@ -111,7 +110,7 @@ def test_enum_string(faker, repeats_for_fast):
 
 
 def test_enum_mixed_types(faker, repeats_for_fast):
-    """enum with mixed types (no explicit type) → one of the enum values."""
+    """Enum with mixed types (no explicit type) → one of the enum values."""
     enum_values = ["a", 1, None, True]
     schema = {"enum": enum_values}
     for _ in range(repeats_for_fast):
@@ -121,7 +120,7 @@ def test_enum_mixed_types(faker, repeats_for_fast):
 
 
 def test_enum_with_objects(faker, repeats_for_fast):
-    """enum containing dict values."""
+    """Enum containing dict values."""
     enum_values = [{"a": 1}, {"b": 2}]
     schema = {"enum": enum_values}
     for _ in range(repeats_for_fast):
@@ -131,7 +130,7 @@ def test_enum_with_objects(faker, repeats_for_fast):
 
 
 def test_enum_with_lists(faker, repeats_for_fast):
-    """enum containing list values."""
+    """Enum containing list values."""
     enum_values = [[1, 2], [3, 4], [5]]
     schema = {"enum": enum_values}
     for _ in range(repeats_for_fast):
@@ -141,7 +140,7 @@ def test_enum_with_lists(faker, repeats_for_fast):
 
 
 def test_enum_single_value(faker, repeats_for_fast):
-    """enum with a single value → always that value (const-like)."""
+    """Enum with a single value → always that value (const-like)."""
     schema = {"type": "string", "enum": ["only_option"]}
     for _ in range(repeats_for_fast):
         result = faker.from_schema(schema)
@@ -160,7 +159,7 @@ def test_enum_covers_all_values(faker):
 
 
 def test_enum_on_anyof(faker, repeats_for_fast):
-    """enum works through compound schema dispatch."""
+    """Enum works through compound schema dispatch."""
     schema = {
         "anyOf": [
             {"type": "string"},

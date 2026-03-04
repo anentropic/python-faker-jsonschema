@@ -15,7 +15,7 @@ Areas covered:
 """
 
 import pytest
-from jsonschema import validate, ValidationError
+from jsonschema import ValidationError, validate
 
 from faker_jsonschema.provider import (
     JSONSchemaProvider,
@@ -40,7 +40,7 @@ class TestNegativeExclusiveBounds:
     """Verify exclusive bounds work correctly for negative values."""
 
     def test_negative_exclusive_minimum_integer(self, faker, repeats_for_fast):
-        """exclusiveMinimum with negative value: result must be > boundary."""
+        """ExclusiveMinimum with negative value: result must be > boundary."""
         schema = {"type": "integer", "exclusiveMinimum": -5, "maximum": 0}
         for _ in range(repeats_for_fast):
             result = faker.from_schema(schema)
@@ -50,7 +50,7 @@ class TestNegativeExclusiveBounds:
             validate(result, schema)
 
     def test_negative_exclusive_maximum_integer(self, faker, repeats_for_fast):
-        """exclusiveMaximum with negative value: result must be < boundary."""
+        """ExclusiveMaximum with negative value: result must be < boundary."""
         schema = {"type": "integer", "minimum": -10, "exclusiveMaximum": -5}
         for _ in range(repeats_for_fast):
             result = faker.from_schema(schema)
@@ -73,7 +73,7 @@ class TestNegativeExclusiveBounds:
             validate(result, schema)
 
     def test_negative_exclusive_minimum_float(self, faker, repeats_for_fast):
-        """exclusiveMinimum with negative float: result must be > boundary."""
+        """ExclusiveMinimum with negative float: result must be > boundary."""
         schema = {"type": "number", "exclusiveMinimum": -5.0, "maximum": 0.0}
         for _ in range(repeats_for_fast):
             result = faker.from_schema(schema)
@@ -83,7 +83,7 @@ class TestNegativeExclusiveBounds:
             validate(result, schema)
 
     def test_negative_exclusive_maximum_float(self, faker, repeats_for_fast):
-        """exclusiveMaximum with negative float: result must be < boundary."""
+        """ExclusiveMaximum with negative float: result must be < boundary."""
         schema = {"type": "number", "minimum": -10.0, "exclusiveMaximum": -5.0}
         for _ in range(repeats_for_fast):
             result = faker.from_schema(schema)
@@ -229,7 +229,8 @@ class TestArrayEdgeCases:
     """Array generation edge cases that could hang or produce wrong results."""
 
     def test_unique_booleans_max_2(self, faker, repeats_for_slow):
-        """uniqueItems with boolean type (domain size 2).
+        """
+        UniqueItems with boolean type (domain size 2).
 
         With finite-domain sampling, this must always produce exactly
         [True, False] (in some order).
@@ -251,7 +252,7 @@ class TestArrayEdgeCases:
             validate(result, schema)
 
     def test_unique_small_enum(self, faker, repeats_for_slow):
-        """uniqueItems with small enum domain."""
+        """UniqueItems with small enum domain."""
         schema = {
             "type": "array",
             "items": {"type": "integer", "enum": [1, 2, 3]},
@@ -267,7 +268,8 @@ class TestArrayEdgeCases:
             validate(result, schema)
 
     def test_unique_bounded_integers(self, faker, repeats_for_slow):
-        """uniqueItems with bounded integer domain (10 values).
+        """
+        UniqueItems with bounded integer domain (10 values).
 
         Finite-domain sampling should always produce distinct values.
         """
@@ -287,7 +289,7 @@ class TestArrayEdgeCases:
             validate(result, schema)
 
     def test_unique_bounded_integers_multiple_of(self, faker, repeats_for_slow):
-        """uniqueItems with bounded integer + multipleOf (domain: 10,20,30,40,50)."""
+        """UniqueItems with bounded integer + multipleOf (domain: 10,20,30,40,50)."""
         schema = {
             "type": "array",
             "items": {
@@ -308,7 +310,7 @@ class TestArrayEdgeCases:
             validate(result, schema)
 
     def test_unique_nullable_booleans(self, faker, repeats_for_slow):
-        """uniqueItems with nullable boolean (domain: true, false, null = 3)."""
+        """UniqueItems with nullable boolean (domain: true, false, null = 3)."""
         schema = {
             "type": "array",
             "items": {"type": "boolean", "nullable": True},
@@ -342,7 +344,7 @@ class TestArrayEdgeCases:
             assert len(set(result)) == len(result)
 
     def test_empty_prefix_items_with_items_false(self, faker, repeats_for_slow):
-        """prefixItems with items: false and matching minItems."""
+        """PrefixItems with items: false and matching minItems."""
         schema = {
             "type": "array",
             "prefixItems": [{"type": "string"}, {"type": "integer"}],
@@ -369,7 +371,8 @@ class TestArrayEdgeCases:
             validate(result, schema)
 
     def test_contains_with_tight_constraints(self, faker, repeats_for_slow):
-        """contains with minContains is now planned upfront, not best-effort.
+        """
+        Contains with minContains is now planned upfront, not best-effort.
 
         With upfront contains planning, we generate the required number of
         contains-matching items first, then fill remaining slots. This should
@@ -412,7 +415,8 @@ class TestArrayEdgeCases:
             validate(result, schema)
 
     def test_contains_with_maxcontains(self, faker, repeats_for_slow):
-        """maxContains limits how many items match the contains schema.
+        """
+        MaxContains limits how many items match the contains schema.
 
         Uses a high-overlap scenario (items 0-100, contains 90-100) to
         verify the generation loop actively rejects excess contains matches
@@ -436,8 +440,10 @@ class TestArrayEdgeCases:
             validate(result, schema)
 
     def test_contains_disjoint_from_items(self, faker, repeats_for_slow):
-        """contains schema is disjoint from items — items generated from
-        contains schema still appear in the array.
+        """
+        Contains schema is disjoint from items.
+
+        Items generated from contains schema still appear in the array.
 
         Note: in JSON Schema, items validates ALL items, so if contains
         and items are truly disjoint, it's unsatisfiable. Here we use
@@ -462,7 +468,7 @@ class TestArrayEdgeCases:
             validate(result, schema)
 
     def test_contains_without_items(self, faker, repeats_for_slow):
-        """contains without items — heterogeneous array with some matching items."""
+        """Contains without items — heterogeneous array with some matching items."""
         schema = {
             "type": "array",
             "contains": {"type": "integer", "minimum": 100, "maximum": 200},
@@ -489,7 +495,8 @@ class TestObjectEdgeCases:
     def test_dependent_required_adds_beyond_max_properties(
         self, faker, repeats_for_slow
     ):
-        """dependentRequired may add properties beyond maxProperties.
+        """
+        DependentRequired may add properties beyond maxProperties.
 
         This is semantically correct: the generated object must satisfy
         dependentRequired even if that means exceeding maxProperties intent.
@@ -571,7 +578,7 @@ class TestObjectEdgeCases:
     def test_object_additional_properties_schema_with_constraints(
         self, faker, repeats_for_slow
     ):
-        """additionalProperties as a constrained schema."""
+        """AdditionalProperties as a constrained schema."""
         schema = {
             "type": "object",
             "properties": {"id": {"type": "integer"}},
@@ -601,7 +608,7 @@ class TestNotTermination:
     """Verify jsonschema_not terminates with various schema shapes."""
 
     def test_not_very_broad_object(self, faker):
-        """not with a very broad object schema should eventually terminate or raise."""
+        """Not with a very broad object schema should eventually terminate or raise."""
         not_schema = {"type": "object"}
         # This should terminate (either by finding a non-object or raising)
         successes = 0
@@ -618,7 +625,7 @@ class TestNotTermination:
         assert successes > 5
 
     def test_not_unconstrained_string(self, faker):
-        """not a fully unconstrained string → picks a different type."""
+        """Not a fully unconstrained string → picks a different type."""
         not_schema = {"type": "string"}
         successes = 0
         for _ in range(20):
@@ -630,7 +637,7 @@ class TestNotTermination:
         assert successes > 5
 
     def test_not_null(self, faker, repeats_for_slow):
-        """not null → should never return None."""
+        """Not null → should never return None."""
         not_schema = {"type": "null"}
         schema = {"not": not_schema}
         successes = 0
@@ -652,7 +659,7 @@ class TestAnyOfEdgeCases:
     """anyOf with various schema shapes."""
 
     def test_anyof_single_schema(self, faker, repeats_for_slow):
-        """anyOf with a single sub-schema."""
+        """AnyOf with a single sub-schema."""
         schema = {
             "anyOf": [
                 {"type": "integer", "minimum": 0, "maximum": 100},
@@ -665,7 +672,7 @@ class TestAnyOfEdgeCases:
             validate(result, schema)
 
     def test_anyof_objects_with_different_required(self, faker, repeats_for_slow):
-        """anyOf with objects having different required properties."""
+        """AnyOf with objects having different required properties."""
         schema = {
             "anyOf": [
                 {
@@ -716,7 +723,8 @@ class TestIfThenElseEdgeCases:
             assert "type" in result
 
     def test_if_then_else_integer_constraints(self, faker, repeats_for_fast):
-        """if/then/else constraining an integer: proper constraint intersection.
+        """
+        if/then/else constraining an integer: proper constraint intersection.
 
         Base: minimum=0, maximum=200.
         then branch: maximum=150  → merged result has min=0, max=min(200,150)=150
@@ -741,7 +749,8 @@ class TestIfThenElseEdgeCases:
             assert result <= 200
 
     def test_if_then_else_preserves_base_constraints(self, faker, repeats_for_fast):
-        """Branch adding minLength must not clobber base maxLength.
+        """
+        Branch adding minLength must not clobber base maxLength.
 
         Base: minLength=1, maxLength=10
         then branch: minLength=5  → merged: minLength=max(1,5)=5, maxLength=10
@@ -767,7 +776,8 @@ class TestIfThenElseEdgeCases:
             assert len(result) >= 1
 
     def test_if_then_else_deep_property_merge(self, faker, repeats_for_slow):
-        """Branch adding a property must not clobber existing properties.
+        """
+        Branch adding a property must not clobber existing properties.
 
         Base properties: {name: string, age: {integer, min=0, max=120}}
         then branch properties: {email: string}
@@ -836,7 +846,7 @@ class TestMultipleOfEdgeCases:
     """multipleOf with tricky constraint combinations."""
 
     def test_multiple_of_negative(self, faker, repeats_for_fast):
-        """multipleOf with negative min/max."""
+        """MultipleOf with negative min/max."""
         for _ in range(repeats_for_fast):
             result = faker.jsonschema_integer(minimum=-30, maximum=-10, multiple_of=5)
             assert isinstance(result, int)
@@ -844,7 +854,7 @@ class TestMultipleOfEdgeCases:
             assert result % 5 == 0
 
     def test_multiple_of_float_negative_range(self, faker, repeats_for_fast):
-        """multipleOf float in negative range."""
+        """MultipleOf float in negative range."""
         for _ in range(repeats_for_fast):
             result = faker.jsonschema_number(
                 minimum=-10.0, maximum=-1.0, multiple_of=2.5
@@ -853,7 +863,7 @@ class TestMultipleOfEdgeCases:
             assert -10.0 <= result <= -1.0
 
     def test_multiple_of_with_exclusive_bounds(self, faker, repeats_for_fast):
-        """multipleOf combined with exclusive bounds."""
+        """MultipleOf combined with exclusive bounds."""
         schema = {
             "type": "integer",
             "exclusiveMinimum": 0,
@@ -868,7 +878,7 @@ class TestMultipleOfEdgeCases:
             validate(result, schema)
 
     def test_multiple_of_unsatisfiable_raises(self, faker):
-        """multipleOf that can't be satisfied raises UnsatisfiableConstraintsError."""
+        """MultipleOf that can't be satisfied raises UnsatisfiableConstraintsError."""
         with pytest.raises(UnsatisfiableConstraintsError):
             faker.jsonschema_integer(minimum=1, maximum=4, multiple_of=5)
 
@@ -980,7 +990,7 @@ class TestRealWorldSchemas:
             validate(result, schema)
 
     def test_allof_with_dependent_schemas(self, faker, repeats_for_slow):
-        """allOf combined with dependentSchemas."""
+        """AllOf combined with dependentSchemas."""
         schema = {
             "allOf": [
                 {
@@ -1014,7 +1024,7 @@ class TestRealWorldSchemas:
             assert "amount" in result
 
     def test_const_in_properties(self, faker, repeats_for_fast):
-        """const values in object properties."""
+        """Const values in object properties."""
         schema = {
             "type": "object",
             "properties": {
