@@ -61,7 +61,7 @@ class NoExampleFoundError(Exception):
     pass
 
 
-class UnsatisfiableConstraintsError(Exception):
+class UnsatisfiableConstraintsError(ValueError):
     pass
 
 
@@ -395,7 +395,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         "byte": StringFormat(
             length_type=LengthType.VARIABLE_RANGE,
             return_type=bytes,
-            # returned length is a multiple of 4
+            # returned length is a multiple of 4 (default maxLength is 255)
             lengths=range(0, 256, 4),
         ),
         "binary": StringFormat(
@@ -761,18 +761,11 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             if exclusive_max:
                 min_diff += _offset
             if diff < min_diff:
-                if mode is NumberMode.INTEGER:
-                    raise ValueError(
-                        f"cannot satisfy constraints "
-                        f"minimum: {original_min}, maximum: {original_max}, "
-                        f"exclusiveMin: {exclusive_min}, exclusiveMax: {exclusive_max}"
-                    )
-                else:
-                    raise UnsatisfiableConstraintsError(
-                        f"cannot satisfy constraints "
-                        f"minimum: {original_min}, maximum: {original_max}, "
-                        f"exclusiveMin: {exclusive_min}, exclusiveMax: {exclusive_max}"
-                    )
+                raise UnsatisfiableConstraintsError(
+                    f"cannot satisfy constraints "
+                    f"minimum: {original_min}, maximum: {original_max}, "
+                    f"exclusiveMin: {exclusive_min}, exclusiveMax: {exclusive_max}"
+                )
 
         def offset_val(val, op):
             offset = _offset
