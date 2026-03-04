@@ -23,7 +23,7 @@ format:
     uv run ruff format faker_jsonschema tests
 
 pytest:
-    uv run pytest -v -s --pdb --pdbcls=IPython.terminal.debugger:TerminalPdb tests/
+    uv run pytest -v -s --pdb
 
 test:
     just lint
