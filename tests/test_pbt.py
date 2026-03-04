@@ -67,6 +67,11 @@ def _boolean_schemas():
     return st.just({"type": "boolean"})
 
 
+def _null_schemas():
+    """Strategy yielding null-type JSON Schemas."""
+    return st.just({"type": "null"})
+
+
 def _flat_schemas():
     """Strategy yielding any flat-type JSON Schema."""
     return st.one_of(
@@ -74,6 +79,7 @@ def _flat_schemas():
         _integer_schemas(),
         _number_schemas(),
         _boolean_schemas(),
+        _null_schemas(),
     )
 
 
@@ -235,3 +241,140 @@ def test_pbt_allof_integer(schema1, schema2):
         return
     validate(result, schema1)
     validate(result, schema2)
+
+
+# ── New feature PBT tests ────────────────────────────────────────────
+
+
+@given(schema=_null_schemas())
+@settings(
+    max_examples=10,
+    suppress_health_check=[HealthCheck.too_slow],
+    deadline=None,
+)
+def test_pbt_null_round_trip(schema):
+    result = _faker.from_schema(schema)
+    assert result is None
+    validate(result, schema)
+
+
+def _type_array_schemas():
+    """Strategy yielding schemas with type as array."""
+    type_list = st.lists(
+        st.sampled_from(["string", "integer", "number", "boolean", "null"]),
+        min_size=1,
+        max_size=3,
+        unique=True,
+    )
+    return type_list.map(lambda types: {"type": types})
+
+
+@given(schema=_type_array_schemas())
+@settings(
+    max_examples=30,
+    suppress_health_check=[HealthCheck.too_slow],
+    deadline=None,
+)
+def test_pbt_type_array_round_trip(schema):
+    result = _faker.from_schema(schema)
+    validate(result, schema)
+
+
+def _const_schemas():
+    """Strategy yielding const schemas."""
+    return st.one_of(
+        st.integers(min_value=-1000, max_value=1000).map(lambda v: {"const": v}),
+        st.text(min_size=0, max_size=20).map(lambda v: {"const": v}),
+        st.just({"const": None}),
+        st.just({"const": True}),
+        st.just({"const": False}),
+    )
+
+
+@given(schema=_const_schemas())
+@settings(
+    max_examples=20,
+    suppress_health_check=[HealthCheck.too_slow],
+    deadline=None,
+)
+def test_pbt_const_round_trip(schema):
+    result = _faker.from_schema(schema)
+    assert result == schema["const"]
+    validate(result, schema)
+
+
+def _exclusive_integer_schemas():
+    """Strategy yielding integer schemas with draft-06+ exclusiveMinimum/Maximum."""
+    return st.fixed_dictionaries(
+        {"type": st.just("integer")},
+        optional={
+            "exclusiveMinimum": st.integers(min_value=-100, max_value=100),
+            "exclusiveMaximum": st.integers(min_value=-100, max_value=100),
+        },
+    ).filter(
+        lambda s: s.get("exclusiveMaximum", 9999) > s.get("exclusiveMinimum", -9999) + 1
+    )
+
+
+@given(schema=_exclusive_integer_schemas())
+@settings(
+    max_examples=30,
+    suppress_health_check=[HealthCheck.too_slow],
+    deadline=None,
+)
+def test_pbt_exclusive_integer_round_trip(schema):
+    result = _faker.from_schema(schema)
+    validate(result, schema)
+
+
+def _prefix_items_schemas():
+    """Strategy yielding array schemas with prefixItems."""
+    prefix = st.lists(_flat_schemas(), min_size=1, max_size=3)
+    return prefix.map(
+        lambda items: {
+            "type": "array",
+            "prefixItems": items,
+            "items": False,
+        }
+    )
+
+
+@given(schema=_prefix_items_schemas())
+@settings(
+    max_examples=20,
+    suppress_health_check=[HealthCheck.too_slow],
+    deadline=None,
+)
+def test_pbt_prefix_items_round_trip(schema):
+    try:
+        result = _faker.from_schema(schema, default_collection_max=10)
+    except UnsatisfiableConstraintsError:
+        return
+    validate(result, schema)
+
+
+def _ref_schemas():
+    """Strategy yielding schemas with $ref/$defs."""
+    return _flat_schemas().map(
+        lambda inner: {
+            "$defs": {"target": inner},
+            "type": "object",
+            "properties": {"val": {"$ref": "#/$defs/target"}},
+            "required": ["val"],
+            "additionalProperties": False,
+        }
+    )
+
+
+@given(schema=_ref_schemas())
+@settings(
+    max_examples=20,
+    suppress_health_check=[HealthCheck.too_slow],
+    deadline=None,
+)
+def test_pbt_ref_round_trip(schema):
+    try:
+        result = _faker.from_schema(schema)
+    except UnsatisfiableConstraintsError:
+        return
+    validate(result, schema)
