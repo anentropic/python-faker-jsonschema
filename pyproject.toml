@@ -1,25 +1,33 @@
-[tool.poetry]
+[project]
 name = "faker-jsonschema"
 version = "0.1.0"
-description = ""
-authors = ["Anentropic <ego@anentropic.com>"]
+description = "Generate fake data matching a JSON schema with Faker."
+authors = [{ name = "Anentropic", email = "ego@anentropic.com" }]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "faker>=37.0.0",
+    "hypothesis>=6.0.0",
+    "inject>=5.2.0",
+    "jsonschema>=4.0.0",
+    "pytz>=2024.1",
+    "typing-extensions>=4.0.0",
+    "wrapt>=1.16.0",
+]
 
-[tool.poetry.dependencies]
-python = "^3.7"
-faker = "^4.0.2"
-hypothesis = "^5.8.0"
-typing_extensions = "^3.7.4"
-pytz = "^2019.3"
-wrapt = "^1.12.1"
-jsonschema = "^3.2.0"
-inject = "^4.1.2"
+[dependency-groups]
+dev = [
+    "flaky>=3.8.1",
+    "ipdb>=0.13.13",
+    "ipython>=8.0.0",
+    "pytest>=8.0.0",
+    "ruff>=0.13.0",
+]
 
-[tool.poetry.dev-dependencies]
-pytest = "^4.6"
-ipython = "^7.13.0"
-ipdb = "^0.13.2"
-flaky = "^3.6.1"
+[tool.ruff]
+target-version = "py39"
+line-length = 88
 
 [build-system]
-requires = ["poetry>=0.12"]
-build-backend = "poetry.masonry.api"
+requires = ["hatchling>=1.26.0"]
+build-backend = "hatchling.build"
