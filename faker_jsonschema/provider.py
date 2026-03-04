@@ -32,8 +32,6 @@ from hypothesis.errors import NoSuchExample
 from typing_extensions import Final
 from wrapt import ObjectProxy
 
-from .utils import intinf
-
 """
 TODO: rename as OpenAPI
 
@@ -392,7 +390,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             length_type=LengthType.VARIABLE_RANGE,
             return_type=bytes,
             # returned length is a multiple of 4
-            lengths=range(0, intinf, 4),
+            lengths=range(0, 256, 4),
         ),
         "binary": StringFormat(
             length_type=LengthType.VARIABLE_SINGULAR,
