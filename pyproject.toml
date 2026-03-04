@@ -4,14 +4,13 @@ version = "0.1.0"
 description = "Generate fake data matching a JSON schema with Faker."
 authors = [{ name = "Anentropic", email = "ego@anentropic.com" }]
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
     "faker>=37.0.0",
     "hypothesis>=6.0.0",
     "inject>=5.2.0",
     "jsonschema>=4.0.0",
     "pytz>=2024.1",
-    "typing-extensions>=4.0.0",
     "wrapt>=1.16.0",
 ]
 
@@ -25,7 +24,7 @@ dev = [
 ]
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py311"
 line-length = 88
 
 [build-system]

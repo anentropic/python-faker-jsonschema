@@ -15,6 +15,7 @@ from random import shuffle
 from typing import (
     Callable,
     Dict,
+    Final,
     FrozenSet,
     Iterable,
     List,
@@ -29,7 +30,6 @@ from jsonschema import validate, ValidationError
 from faker.providers import BaseProvider
 from hypothesis import find, settings, strategies as st
 from hypothesis.errors import NoSuchExample
-from typing_extensions import Final
 from wrapt import ObjectProxy
 
 """
@@ -145,6 +145,12 @@ class StringFormat:
                 assert self.lengths.start >= 0
                 assert self.lengths.stop > 0
                 assert self.lengths.step > 0
+                if self.length_type is not LengthType.VARIABLE_RANGE:
+                    return all(
+                        len_ >= min_length and (
+                            max_length is None or len_ <= max_length)
+                        for len_ in self.lengths
+                    )
                 start = self.lengths.start
                 stop = self.lengths.stop
                 step = self.lengths.step
@@ -306,7 +312,7 @@ TYPE_ATTR_MERGE_RESOLVERS = {
     TypeName.OBJECT: {
         "properties": _resolve_properties,
         "propertyNames": _merge_schemas,
-        "required": lambda l, r: list(set(l) | set(r)),
+        "required": lambda left, right: list(set(left) | set(right)),
         "additionalProperties": operator.or_,
         "minProperties": max,
         "maxProperties": min,
@@ -836,7 +842,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                     break
             else:
                 raise StopIteration(
-                    f"Could not find a valid minimum and maximum in 100 iterations",
+                    "Could not find a valid minimum and maximum in 100 iterations",
                     minimum,
                     maximum,
                 )
