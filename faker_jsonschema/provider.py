@@ -197,7 +197,7 @@ EnumVal = TypeVar("EnumVal", bound=JsonT)
 
 class JsonEnum(FrozenSet[JsonVal]):
     def __new__(cls, values: Iterable[EnumVal]) -> "JsonEnum[EnumVal]":
-        return super().__new__(JsonVal(val) for val in values)
+        return super().__new__(cls, (JsonVal(val) for val in values))
 
 
 def nullable_or_enum(f):

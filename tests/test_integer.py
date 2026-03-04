@@ -1,6 +1,7 @@
 import itertools
 
 import pytest
+from jsonschema import validate
 
 from faker_jsonschema.provider import UnsatisfiableConstraintsError
 
@@ -114,3 +115,53 @@ def test_jsonschema_integer(faker, minimum, maximum, multiple_of):
         assert result <= maximum
     if multiple_of is not None:
         assert result % multiple_of == 0, (result, multiple_of, result % multiple_of)
+
+
+# ── from_schema round-trip tests ─────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "minimum,maximum",
+    [
+        (None, None),
+        (0, 100),
+        (-50, 50),
+        (10, 10),
+    ],
+)
+def test_from_schema_integer_round_trip(faker, repeats_for_fast, minimum, maximum):
+    """from_schema round trip for integer with min/max constraints."""
+    schema = {"type": "integer"}
+    if minimum is not None:
+        schema["minimum"] = minimum
+    if maximum is not None:
+        schema["maximum"] = maximum
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, int)
+        validate(result, schema)
+
+
+def test_from_schema_integer_multiple_of(faker, repeats_for_fast):
+    """from_schema round trip with multipleOf."""
+    schema = {"type": "integer", "minimum": 0, "maximum": 100, "multipleOf": 5}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, int)
+        validate(result, schema)
+
+
+def test_from_schema_integer_exclusive(faker, repeats_for_fast):
+    """from_schema round trip with exclusiveMinimum / exclusiveMaximum."""
+    schema = {
+        "type": "integer",
+        "minimum": 10,
+        "maximum": 20,
+        "exclusiveMin": True,
+        "exclusiveMax": True,
+    }
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, int)
+        assert result > 10
+        assert result < 20

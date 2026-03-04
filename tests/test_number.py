@@ -2,6 +2,7 @@ import itertools
 from decimal import Decimal
 
 import pytest
+from jsonschema import validate
 
 from faker_jsonschema.provider import UnsatisfiableConstraintsError
 
@@ -139,3 +140,37 @@ def test_jsonschema_number(faker, minimum, maximum, multiple_of):
             multiple_of,
             result % multiple_of,
         )
+
+
+# ── from_schema round-trip tests ─────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "minimum,maximum",
+    [
+        (None, None),
+        (0.0, 100.0),
+        (-50.5, 50.5),
+        (10.0, 10.0),
+    ],
+)
+def test_from_schema_number_round_trip(faker, repeats_for_fast, minimum, maximum):
+    """from_schema round trip for number with min/max constraints."""
+    schema = {"type": "number"}
+    if minimum is not None:
+        schema["minimum"] = minimum
+    if maximum is not None:
+        schema["maximum"] = maximum
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, (float, int))
+        validate(result, schema)
+
+
+def test_from_schema_number_multiple_of(faker, repeats_for_fast):
+    """from_schema round trip with multipleOf."""
+    schema = {"type": "number", "minimum": 0, "maximum": 100, "multipleOf": 2.5}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, (float, int))
+        validate(result, schema)
