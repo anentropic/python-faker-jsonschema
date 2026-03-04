@@ -3,6 +3,7 @@ import re
 from typing import List, Optional, Tuple
 
 import pytest
+from jsonschema import validate
 
 from faker_jsonschema.provider import (
     JSONSchemaProvider,
@@ -78,22 +79,29 @@ def test_jsonschema_pattern(
             )
         return
 
-    try:
-        result = faker.jsonschema_string(
-            pattern=pattern,
-            min_length=min_length,
-            max_length=max_length,
-        )
-    except (NoExampleFoundError, UnsatisfiableConstraintsError) as e:
-        # finding suitable examples (with underlying `hypothesis.example`)
-        # is not deterministic, an example should exist but may not be found
-        print(repr(e))
-    else:
-        assert isinstance(result, str)
-        assert re.search(pattern, result)
-        assert len(result) >= min_length
-        if max_length is not None:
-            assert len(result) <= max_length
+    # finding suitable examples (with underlying `hypothesis.example`)
+    # is not deterministic — track failure rate instead of silently ignoring
+    failures = 0
+    attempts = 5
+    for _ in range(attempts):
+        try:
+            result = faker.jsonschema_string(
+                pattern=pattern,
+                min_length=min_length,
+                max_length=max_length,
+            )
+        except (NoExampleFoundError, UnsatisfiableConstraintsError):
+            failures += 1
+        else:
+            assert isinstance(result, str)
+            assert re.search(pattern, result)
+            assert len(result) >= min_length
+            if max_length is not None:
+                assert len(result) <= max_length
+    assert failures < attempts, (
+        f"Pattern {pattern!r} with minLength={min_length}, "
+        f"maxLength={max_length} failed all {attempts} attempts"
+    )
 
 
 @pytest.mark.parametrize(
@@ -351,3 +359,54 @@ def test_jsonschema_format_min_max_length_unconstrained(
     assert min_length <= len(result)
     if max_length is not None:
         assert len(result) <= max_length
+
+
+# ── from_schema round-trip tests ─────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "min_length,max_length",
+    [
+        (0, None),
+        (5, 20),
+        (10, 10),
+        (0, 5),
+    ],
+)
+def test_from_schema_string_round_trip(faker, repeats_for_slow, min_length, max_length):
+    """from_schema round trip for string with length constraints."""
+    schema = {"type": "string", "minLength": min_length}
+    if max_length is not None:
+        schema["maxLength"] = max_length
+    for _ in range(repeats_for_slow):
+        result = faker.from_schema(schema)
+        assert isinstance(result, str)
+        validate(result, schema)
+
+
+def test_from_schema_string_format_date(faker, repeats_for_slow):
+    """from_schema round trip with format: date."""
+    schema = {"type": "string", "format": "date"}
+    for _ in range(repeats_for_slow):
+        result = faker.from_schema(schema)
+        assert isinstance(result, str)
+        validate(result, schema)
+
+
+def test_from_schema_string_format_email(faker, repeats_for_slow):
+    """from_schema round trip with format: email."""
+    schema = {"type": "string", "format": "email"}
+    for _ in range(repeats_for_slow):
+        result = faker.from_schema(schema)
+        assert isinstance(result, str)
+
+
+# ── _format_byte edge case ───────────────────────────────────────────
+
+
+def test_format_byte_no_valid_length(faker):
+    """_format_byte with no valid base64 length in range raises."""
+    with pytest.raises(
+        UnsatisfiableConstraintsError, match="incompatible with format: byte"
+    ):
+        faker.jsonschema_string(format_="byte", min_length=5, max_length=7)
