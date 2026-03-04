@@ -72,7 +72,7 @@ def test_jsonschema_pattern(
 
     if possible_lengths is not None and not valid_constraints():
         # length constraints could never be satisfied by the pattern
-        with pytest.raises(NoExampleFoundError):
+        with pytest.raises((NoExampleFoundError, UnsatisfiableConstraintsError)):
             faker.jsonschema_string(
                 pattern=pattern,
                 min_length=min_length,
@@ -86,7 +86,7 @@ def test_jsonschema_pattern(
             min_length=min_length,
             max_length=max_length,
         )
-    except NoExampleFoundError as e:
+    except (NoExampleFoundError, UnsatisfiableConstraintsError) as e:
         # finding suitable examples (with underlying `hypothesis.example`)
         # is not deterministic, an example should exist but may not be found
         print(repr(e))

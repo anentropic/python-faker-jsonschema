@@ -2,9 +2,16 @@
 from __future__ import unicode_literals
 
 import re
-import sre_compile
-import sre_constants
-import sre_parse
+
+try:
+    import re._compiler as sre_compile
+    import re._constants as sre_constants
+    import re._parser as sre_parse
+except ImportError:
+    import sre_compile  # type: ignore[no-redef]
+    import sre_constants  # type: ignore[no-redef]
+    import sre_parse  # type: ignore[no-redef]
+
 from copy import deepcopy
 from functools import lru_cache
 from sys import version_info as python_version
@@ -76,7 +83,8 @@ def _prepare_and_parse(pattern: str, flags: int = 0) -> sre_parse.SubPattern:
     # and the list of flags at https://docs.python.org/3/library/re.html#re.compile
     if flags & re.LOCALE:
         raise NotJavascriptRegex("The re.LOCALE flag has no equivalent in Javascript")
-    if flags & re.TEMPLATE:
+    _re_template = getattr(re, "TEMPLATE", None)
+    if _re_template is not None and flags & _re_template:
         raise NotJavascriptRegex("The re.TEMPLATE flag has no equivalent in Javascript")
     if flags & re.VERBOSE:
         raise NotJavascriptRegex("The re.VERBOSE flag has no equivalent in Javascript")
