@@ -14,7 +14,7 @@ shell:
     PYTHONPATH=faker_jsonschema:tests:$PYTHONPATH uv run ipython
 
 typecheck:
-    uv run pytype faker_jsonschema
+    uv run basedpyright
 
 lint:
     uv run ruff check faker_jsonschema tests

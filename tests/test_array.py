@@ -27,11 +27,9 @@ from jsonschema import validate
                 },
             ]
         },
-    )
+    ),
 )
-def test_jsonschema_array_from_schema(
-    faker, repeats, schema
-):
+def test_jsonschema_array_from_schema(faker, repeats, schema):
     for _ in range(repeats):
         result = faker.jsonschema_array(items=schema)
         assert isinstance(result, list)
