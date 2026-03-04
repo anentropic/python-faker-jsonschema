@@ -1,6 +1,5 @@
 import itertools
 import re
-from typing import List, Optional, Tuple
 
 import pytest
 from jsonschema import validate
@@ -48,9 +47,9 @@ def test_jsonschema_string_length(faker, repeats_for_slow, min_length, max_lengt
 )
 def test_jsonschema_pattern(
     faker,
-    pattern_spec: Tuple[str, Optional[List[int]]],
+    pattern_spec: tuple[str, list[int] | None],
     min_length: int,
-    max_length: Optional[int],
+    max_length: int | None,
 ):
     pattern, possible_lengths = pattern_spec
 

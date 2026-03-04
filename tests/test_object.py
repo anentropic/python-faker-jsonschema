@@ -181,7 +181,7 @@ def test_jsonschema_object_max_lt_required(faker, properties):
 
 
 def test_jsonschema_object_min_eq_max(faker, repeats_for_slow):
-    """minProperties == maxProperties → exact count."""
+    """MinProperties == maxProperties → exact count."""
     for _ in range(repeats_for_slow):
         result = faker.jsonschema_object(
             min_properties=5,
@@ -230,8 +230,9 @@ def test_jsonschema_object_large_min_additional_only(faker):
 
 def test_jsonschema_object_min_satisfiable_with_non_required(faker, repeats_for_slow):
     """
-    B1 regression: minProperties > len(required) but <= len(properties)
-    should NOT raise (previously did).
+    B1 regression: minProperties > len(required) but <= len(properties).
+
+    Should NOT raise (previously did).
     """
     for _ in range(repeats_for_slow):
         result = faker.jsonschema_object(
@@ -256,7 +257,7 @@ def test_jsonschema_object_min_satisfiable_with_non_required(faker, repeats_for_
 
 
 def test_jsonschema_object_additional_properties_schema(faker, repeats_for_slow):
-    """additionalProperties as a schema → extra values conform to it."""
+    """AdditionalProperties as a schema → extra values conform to it."""
     schema = {
         "type": "object",
         "properties": {
@@ -300,7 +301,7 @@ def test_jsonschema_object_additional_properties_false_strict(faker, repeats_for
 
 
 def test_jsonschema_object_pattern_properties(faker, repeats_for_slow):
-    """patternProperties → at least one key matching each pattern."""
+    """PatternProperties → at least one key matching each pattern."""
     for _ in range(repeats_for_slow):
         result = faker.jsonschema_object(
             pattern_properties={
@@ -325,7 +326,7 @@ def test_jsonschema_object_pattern_properties(faker, repeats_for_slow):
 
 
 def test_jsonschema_object_pattern_properties_with_properties(faker, repeats_for_slow):
-    """patternProperties combined with properties."""
+    """PatternProperties combined with properties."""
     for _ in range(repeats_for_slow):
         result = faker.jsonschema_object(
             properties={"name": {"type": "string"}},
@@ -441,7 +442,7 @@ def test_jsonschema_object_unevaluated_properties_false(faker, repeats_for_slow)
 
 
 def test_jsonschema_object_unevaluated_properties_schema(faker, repeats_for_slow):
-    """unevaluatedProperties as schema → extra values conform to it."""
+    """UnevaluatedProperties as schema → extra values conform to it."""
     for _ in range(repeats_for_slow):
         result = faker.jsonschema_object(
             properties={
@@ -464,7 +465,8 @@ def test_jsonschema_object_unevaluated_properties_schema(faker, repeats_for_slow
 
 
 def test_jsonschema_object_if_then_else_via_from_schema(faker, repeats_for_slow):
-    """if/then/else at schema level via from_schema.
+    """
+    if/then/else at schema level via from_schema.
 
     Uses structurally different then/else branches so we can verify
     the correct branch is applied.
@@ -658,7 +660,7 @@ def test_from_schema_pattern_properties(faker, repeats_for_slow):
 
 
 def test_anyof_multiple_types_including_objects(faker, repeats_for_slow):
-    """anyOf with mixed types (object + string) shouldn't crash (B4 regression)."""
+    """AnyOf with mixed types (object + string) shouldn't crash (B4 regression)."""
     schema = {
         "anyOf": [
             {
@@ -677,7 +679,7 @@ def test_anyof_multiple_types_including_objects(faker, repeats_for_slow):
 
 
 def test_allof_two_object_schemas(faker, repeats_for_slow):
-    """allOf with 2 object schemas → merged properties (B5 regression)."""
+    """AllOf with 2 object schemas → merged properties (B5 regression)."""
     schema = {
         "allOf": [
             {
@@ -705,7 +707,7 @@ def test_allof_two_object_schemas(faker, repeats_for_slow):
 
 
 def test_jsonschema_object_pattern_properties_unmatchable(faker, repeats_for_slow):
-    """Unmatchable patternProperties pattern shouldn't crash (exercises continue path)."""
+    """Unmatchable patternProperties pattern shouldn't crash."""
     for _ in range(repeats_for_slow):
         # This extremely restrictive pattern may fail to generate a key,
         # which triggers the `except: continue` path in key generation.

@@ -100,15 +100,14 @@ def test_jsonschema_number_exclusive_range(
     ),
 )
 def test_jsonschema_number(faker, minimum, maximum, multiple_of):
-    if None not in (minimum, maximum):
-        if minimum > maximum:
-            with pytest.raises(ValueError):
-                faker.jsonschema_number(
-                    minimum=minimum,
-                    maximum=maximum,
-                    multiple_of=multiple_of,
-                )
-            return
+    if None not in (minimum, maximum) and minimum > maximum:
+        with pytest.raises(ValueError):
+            faker.jsonschema_number(
+                minimum=minimum,
+                maximum=maximum,
+                multiple_of=multiple_of,
+            )
+        return
 
     try:
         result = faker.jsonschema_number(

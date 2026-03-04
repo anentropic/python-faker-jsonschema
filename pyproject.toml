@@ -36,6 +36,17 @@ docs = [
 target-version = "py311"
 line-length = 88
 
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "TCH", "D"]
+ignore = [
+    "D1",    # don't require docstrings everywhere
+    "D202",  # allow blank line after docstring (common in tests)
+    "D203",  # conflicts with D211 (no blank line before class docstring)
+    "D212",  # conflicts with D213 (multiline summary on second line)
+    "D401",  # imperative mood is awkward for dunder methods
+    "D413",  # blank line after last section not required
+]
+
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "basic"

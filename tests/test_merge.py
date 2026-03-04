@@ -15,7 +15,6 @@ from faker_jsonschema.provider import (
     compound_schema,
 )
 
-
 # ── _merge_constraint ────────────────────────────────────────────────
 
 

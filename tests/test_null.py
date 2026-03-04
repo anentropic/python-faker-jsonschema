@@ -2,7 +2,6 @@
 
 from jsonschema import validate
 
-
 # ── Direct call ──────────────────────────────────────────────────────
 
 
@@ -26,7 +25,7 @@ def test_from_schema_null(faker, repeats_for_fast):
 
 
 def test_from_schema_null_with_enum(faker, repeats_for_fast):
-    """null type with enum containing only None."""
+    """Null type with enum containing only None."""
     schema = {"type": "null", "enum": [None]}
     for _ in range(repeats_for_fast):
         result = faker.from_schema(schema)

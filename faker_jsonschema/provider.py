@@ -1,3 +1,4 @@
+import contextlib
 import datetime
 import inspect
 import itertools
@@ -8,31 +9,26 @@ import re
 import sys
 import warnings
 from base64 import b64encode
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from decimal import Decimal
-from enum import auto, Enum
+from enum import Enum, StrEnum, auto
 from functools import partial, reduce, wraps
 from numbers import Number
 from random import shuffle
 from typing import (
-    Callable,
-    Dict,
     Final,
-    FrozenSet,
-    Iterable,
-    List,
     Optional,
-    Tuple,
     TypeVar,
-    Union,
 )
 
-import js_regex
 import pytz
-from jsonschema import validate, ValidationError
 from faker.providers import BaseProvider
 from hypothesis import strategies as st
+from jsonschema import ValidationError, validate
 from wrapt import ObjectProxy
+
+import js_regex
 
 """
 TODO: rename as OpenAPI
@@ -83,7 +79,7 @@ class LengthType(Enum):
     UNCONSTRAINED = auto()
 
 
-class TypeName(str, Enum):
+class TypeName(StrEnum):
     STRING = "string"
     NUMBER = "number"
     INTEGER = "integer"
@@ -121,11 +117,11 @@ COMPOUND_TYPES = {
 }
 
 
-StrT = Union[str, bytes]
+StrT = str | bytes
 
-JsonT = Union[StrT, int, float, bool, None, List["JsonT"], Dict[str, "JsonT"]]
+JsonT = StrT | int | float | bool | None | list["JsonT"] | dict[str, "JsonT"]
 
-SchemaT = Dict[str, JsonT]
+SchemaT = dict[str, JsonT]
 
 type_getter = operator.itemgetter("type")
 
@@ -133,10 +129,10 @@ type_getter = operator.itemgetter("type")
 @dataclass
 class StringFormat:
     length_type: LengthType
-    lengths: Optional[Union[Iterable[int], range]] = None
+    lengths: Iterable[int] | range | None = None
     return_type: StrT = str
 
-    def validate_constraints(self, min_length: int, max_length: Optional[int]) -> bool:
+    def validate_constraints(self, min_length: int, max_length: int | None) -> bool:
         assert min_length >= 0
         assert max_length is None or max_length >= 0
         # VARIABLE_SINGULAR and VARIABLE_RANGE mean we can specify the length
@@ -164,9 +160,7 @@ class StringFormat:
                     )
                 if nearest_to_min >= stop:
                     return False
-                if max_length is not None and nearest_to_min > max_length:
-                    return False
-                return True
+                return not (max_length is not None and nearest_to_min > max_length)
             else:
                 return all(
                     len_ >= min_length and (max_length is None or len_ <= max_length)
@@ -175,17 +169,13 @@ class StringFormat:
         else:
             # UNCONSTRAINED means examples can be any length, we will have
             # to brute-force search for a matching example
-            if self.length_type is LengthType.UNCONSTRAINED and max_length == 0:
-                # I'm guessing that most UNCONSTRAINED generators will never
-                # generate an empty string
-                return False
-            return True
+            return not (
+                self.length_type is LengthType.UNCONSTRAINED and max_length == 0
+            )
 
 
 class JsonVal(ObjectProxy):
-    """
-    "At last, I can put a dict in a set..."
-    """
+    """Hashable JSON value wrapper -- at last, a dict in a set."""
 
     def __init__(self, val: JsonT):
         super().__init__(val)
@@ -198,13 +188,15 @@ class JsonVal(ObjectProxy):
 EnumVal = TypeVar("EnumVal", bound=JsonT)
 
 
-class JsonEnum(FrozenSet[JsonVal]):
+class JsonEnum(frozenset[JsonVal]):
     def __new__(cls, values: Iterable[EnumVal]) -> "JsonEnum":
         return super().__new__(cls, (JsonVal(val) for val in values))
 
 
 def nullable_or_enum(f):
     """
+    Intercept `nullable` and `enum` before type-specific logic.
+
     Decorator for `JSONSchemaProvider.<type>_from_schema` methods to
     handle `nullable` and `enum` properties which are kind of
     orthogonal to the rest of the types.
@@ -228,7 +220,7 @@ class Context:
     max_search: Final[int] = 500
     default_collection_max: Final[int] = 50
     default_property_schema = {"type": "string", "format": "user_name"}
-    _root_schema: Optional[SchemaT] = None
+    _root_schema: SchemaT | None = None
     _ref_stack: list = None  # type: ignore[assignment]
 
     def __post_init__(self):
@@ -242,10 +234,10 @@ T = TypeVar("T")
 
 
 def _merge_constraint(
-    left: Optional[L],
-    right: Optional[R],
-    resolver: Callable[[L, R], Union[L, R]],
-) -> Optional[JsonT]:
+    left: L | None,
+    right: R | None,
+    resolver: Callable[[L, R], L | R],
+) -> JsonT | None:
     if left is not None:
         if right is not None:
             return resolver(left, right)
@@ -275,8 +267,8 @@ def _resolve_multiple_of(left: Number, right: Number) -> Number:
 
 
 def _resolve_properties(
-    left: Dict[str, SchemaT], right: Dict[str, SchemaT]
-) -> Dict[str, SchemaT]:
+    left: dict[str, SchemaT], right: dict[str, SchemaT]
+) -> dict[str, SchemaT]:
     properties = left.copy()
     for name, schema in right.items():
         if name in left:
@@ -287,8 +279,8 @@ def _resolve_properties(
 
 
 def _resolve_additional_properties(
-    left: Union[bool, SchemaT], right: Union[bool, SchemaT]
-) -> Union[bool, SchemaT]:
+    left: bool | SchemaT, right: bool | SchemaT
+) -> bool | SchemaT:
     """Merge additionalProperties: False is strictest, schema beats True."""
     if left is False or right is False:
         return False
@@ -303,8 +295,8 @@ def _resolve_additional_properties(
 
 
 def _resolve_dependent_required(
-    left: Dict[str, List[str]], right: Dict[str, List[str]]
-) -> Dict[str, List[str]]:
+    left: dict[str, list[str]], right: dict[str, list[str]]
+) -> dict[str, list[str]]:
     merged = left.copy()
     for key, deps in right.items():
         if key in merged:
@@ -315,8 +307,8 @@ def _resolve_dependent_required(
 
 
 def _resolve_dependent_schemas(
-    left: Dict[str, SchemaT], right: Dict[str, SchemaT]
-) -> Dict[str, SchemaT]:
+    left: dict[str, SchemaT], right: dict[str, SchemaT]
+) -> dict[str, SchemaT]:
     merged = left.copy()
     for key, schema in right.items():
         if key in merged:
@@ -372,7 +364,7 @@ _numeric_attr_merge_funcs = {
 }
 
 
-def _resolve_prefix_items(left: List[SchemaT], right: List[SchemaT]) -> List[SchemaT]:
+def _resolve_prefix_items(left: list[SchemaT], right: list[SchemaT]) -> list[SchemaT]:
     """Merge prefixItems: merge pairwise, keep longer."""
     result = []
     for i in range(max(len(left), len(right))):
@@ -442,13 +434,11 @@ def kwargs_from_schema_factory(method):
         if arg != "self"
     }
 
-    def kwargs_from_schema(schema: SchemaT) -> Dict[str, JsonT]:
+    def kwargs_from_schema(schema: SchemaT) -> dict[str, JsonT]:
         kwargs = {}
         for arg, getter in getters.items():
-            try:
+            with contextlib.suppress(KeyError):
                 kwargs[arg] = getter(schema)
-            except KeyError:
-                pass
         return kwargs
 
     return kwargs_from_schema
@@ -560,8 +550,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
     FLOAT_OFFSET: Final = float("0.{}1".format("0" * (sys.float_info.dig - 2)))
 
     BASE_METHOD_MAP = {
-        type_name: "jsonschema_{}".format(type_name.value.lower())
-        for type_name in TypeName
+        type_name: f"jsonschema_{type_name.value.lower()}" for type_name in TypeName
     }
 
     _context: Optional["Context"] = None
@@ -583,6 +572,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
     def _format_byte(self, min_length: int, max_length: int) -> bytes:
         """
+        Generate base64-encoded bytes.
+
         Base64 values always have length which is a multiple of 4
         and the encoded value will be 4/3 * longer than the original.
         """
@@ -737,13 +728,15 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
     def jsonschema_string(
         self,
         min_length: int = 0,
-        max_length: Optional[int] = None,
-        pattern: Optional[str] = None,
-        format_: Optional[str] = None,
-        content_encoding: Optional[str] = None,
-        content_media_type: Optional[str] = None,
+        max_length: int | None = None,
+        pattern: str | None = None,
+        format_: str | None = None,
+        content_encoding: str | None = None,
+        content_media_type: str | None = None,
     ) -> StrT:
         """
+        Generate a fake string value.
+
         Args:
             min_length: we will try to respect this for all strategies
             max_length: we will try to respect this for all strategies
@@ -755,7 +748,9 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             format_: OpenAPI mandates some specific formats, others are allowed
                 without having a formal meaning in the spec. We will attempt to
                 match the format to a faker method (since many of them coincide
-                and it seems useful behaviour)
+                and it seems useful behaviour).
+            content_encoding: draft 2019-09+ content encoding (e.g. "base64").
+            content_media_type: draft 2019-09+ media type hint.
 
         Raises:
             NoExampleFoundError
@@ -809,20 +804,17 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
         # Handle contentEncoding (draft 2019-09+)
         # When contentEncoding is "base64", generate base64-encoded content
-        if content_encoding is not None:
-            if content_encoding.lower() == "base64":
-                return self._format_byte(
-                    min_length=min_length,
-                    max_length=max_length if max_length is not None else 255,
-                )
+        if content_encoding is not None and content_encoding.lower() == "base64":
+            return self._format_byte(
+                min_length=min_length,
+                max_length=max_length if max_length is not None else 255,
+            )
             # For unknown encodings, fall through to normal generation
 
         def is_valid(val) -> bool:
             if len(val) < min_length:
                 return False
-            if max_length is not None and len(val) > max_length:
-                return False
-            return True
+            return not (max_length is not None and len(val) > max_length)
 
         def search(generator: Callable[..., T]) -> T:
             for _ in range(self.context.max_search):
@@ -877,7 +869,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                         raise UnsatisfiableConstraintsError(
                             f"Unable to generate any random value that matches "
                             f"format: {format_} and minLength: {min_length}, "
-                            f"maxLength: {max_length} after {self.context.max_search} attempts."
+                            f"maxLength: {max_length} after "
+                            f"{self.context.max_search} attempts."
                         ) from e
             else:
                 if not format_type.validate_constraints(min_length, max_length):
@@ -903,7 +896,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                         raise UnsatisfiableConstraintsError(
                             f"Unable to generate any random value that matches "
                             f"format: {format_} and minLength: {min_length}, "
-                            f"maxLength: {max_length} after {self.context.max_search} attempts."
+                            f"maxLength: {max_length} after "
+                            f"{self.context.max_search} attempts."
                         ) from e
 
         if max_length is None or (max_length and max_length > 20):
@@ -925,12 +919,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             max_chars=max_length if max_length is not None else 255,
         )
 
-    def better_pyfloat(
-        self, min_value: Optional[float], max_value: Optional[float]
-    ) -> float:
-        """
-        `faker.pyfloat` only supports int for min and max value
-        """
+    def better_pyfloat(self, min_value: float | None, max_value: float | None) -> float:
+        """`faker.pyfloat` only supports int for min and max value."""
         if None not in (min_value, max_value) and min_value > max_value:
             raise ValueError("min_value cannot be greater than max_value")
         if None not in (min_value, max_value) and min_value == max_value:
@@ -944,10 +934,12 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
         return self.generator.random.uniform(min_value, max_value)
 
-    def _safe_random_int(self, min_value: Optional[int], max_value: Optional[int]):
+    def _safe_random_int(self, min_value: int | None, max_value: int | None):
         """
-        This method exists in faker/providers/python/__init__.py
-        but it's not available in our provider because it's named as private
+        Safe random int generation (mirrors faker's private helper).
+
+        Exists in faker/providers/python/__init__.py
+        but it's not available in our provider because it's named as private.
 
         Also: https://github.com/joke2k/faker/issues/1152  (fixed here)
         """
@@ -1001,11 +993,12 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         unique_items: bool,
         existing: list[JsonT],
         accept_item: Callable[[JsonT], bool],
-        contains: Optional[SchemaT],
-        contains_budget: Optional[int],
+        contains: SchemaT | None,
+        contains_budget: int | None,
         retry_factor: int = 3,
     ) -> list[JsonT]:
-        """Generate *count* array items with shared uniqueness/duplicate logic.
+        """
+        Generate *count* array items with shared uniqueness/duplicate logic.
 
         Parameters
         ----------
@@ -1045,9 +1038,13 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 pass  # would exceed maxContains
             else:
                 items.append(item)
-            if not unique_items and len(duplicates) < dup_count:
-                if (item in existing or item in items) and accept_item(item):
-                    duplicates.append(item)
+            if (
+                not unique_items
+                and len(duplicates) < dup_count
+                and (item in existing or item in items)
+                and accept_item(item)
+            ):
+                duplicates.append(item)
             if len(items) >= actual_count:
                 break
 
@@ -1067,8 +1064,11 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
         return items
 
-    def _enumerate_finite_domain(self, schema: SchemaT) -> Optional[list[JsonT]]:
-        """Return all possible values for *schema*, or ``None`` if the domain
+    def _enumerate_finite_domain(self, schema: SchemaT) -> list[JsonT] | None:
+        """
+        Return all possible values for *schema*, or ``None`` if infinite.
+
+        Return all possible values for *schema*, or ``None`` if the domain
         is infinite or too large to enumerate.
 
         Recognised finite domains
@@ -1133,9 +1133,12 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
         return None
 
-    def _enumerate_integer_domain(self, schema: SchemaT) -> Optional[list[JsonT]]:
-        """Enumerate all integers satisfying the schema's bounds, or ``None``
-        if unbounded / too large."""
+    def _enumerate_integer_domain(self, schema: SchemaT) -> list[JsonT] | None:
+        """
+        Enumerate all integers satisfying the schema's bounds.
+
+        Returns ``None`` if unbounded / too large.
+        """
         lo = schema.get("minimum")
         hi = schema.get("maximum")
         excl_lo = schema.get("exclusiveMinimum")
@@ -1180,13 +1183,13 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
     def _jsonschema_number(
         self,
         mode: NumberMode,
-        minimum: Optional[Number] = None,
-        maximum: Optional[Number] = None,
+        minimum: Number | None = None,
+        maximum: Number | None = None,
         exclusive_min: bool = False,
         exclusive_max: bool = False,
-        exclusive_minimum: Optional[Number] = None,
-        exclusive_maximum: Optional[Number] = None,
-        multiple_of: Optional[Number] = None,
+        exclusive_minimum: Number | None = None,
+        exclusive_maximum: Number | None = None,
+        multiple_of: Number | None = None,
     ) -> Number:
         if mode is NumberMode.FLOAT:
 
@@ -1322,7 +1325,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                     f"exclusiveMin: {exclusive_min}, exclusiveMax: {exclusive_max}"
                 )
 
-        def get_range() -> Tuple[int, int]:
+        def get_range() -> tuple[int, int]:
             low = safe_min / multiple_of
             high = safe_max / multiple_of
             low, high = sorted((low, high))
@@ -1334,13 +1337,13 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
     def jsonschema_number(
         self,
-        minimum: Optional[float] = None,
-        maximum: Optional[float] = None,
+        minimum: float | None = None,
+        maximum: float | None = None,
         exclusive_min: bool = False,
         exclusive_max: bool = False,
-        exclusive_minimum: Optional[float] = None,
-        exclusive_maximum: Optional[float] = None,
-        multiple_of: Optional[float] = None,
+        exclusive_minimum: float | None = None,
+        exclusive_maximum: float | None = None,
+        multiple_of: float | None = None,
     ) -> float:
         return self._jsonschema_number(
             mode=NumberMode.FLOAT,
@@ -1355,13 +1358,13 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
     def jsonschema_integer(
         self,
-        minimum: Optional[int] = None,
-        maximum: Optional[int] = None,
+        minimum: int | None = None,
+        maximum: int | None = None,
         exclusive_min: bool = False,
         exclusive_max: bool = False,
-        exclusive_minimum: Optional[int] = None,
-        exclusive_maximum: Optional[int] = None,
-        multiple_of: Optional[int] = None,
+        exclusive_minimum: int | None = None,
+        exclusive_maximum: int | None = None,
+        multiple_of: int | None = None,
     ) -> int:
         return self._jsonschema_number(
             mode=NumberMode.INTEGER,
@@ -1386,9 +1389,10 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
     def jsonschema_anyof(self, schemas: Iterable[JsonT]) -> JsonT:
         """
-        Group all schemas by type. Randomly choose a type.
-        Randomly combine one or more of the given schemas of that type
-        according to the rules for `allOf`.
+        Group all schemas by type and randomly combine.
+
+        Randomly choose a type. Randomly combine one or more of the given
+        schemas of that type according to the rules for `allOf`.
         """
         schema_map = {
             k: list(v)
@@ -1402,8 +1406,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
     def jsonschema_allof(self, schemas: Iterable[JsonT]) -> JsonT:
         """
-        Make a compound schema from all members and return an object
-        satisfying that.
+        Make a compound schema from all members and generate a value.
 
         Even the spec says:
         "Note that it’s quite easy to create schemas that are logical
@@ -1424,7 +1427,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         schema = compound_schema(schemas)
         return self._from_schema(schema)
 
-    def _random_type_method(self) -> Tuple[TypeName, Callable]:
+    def _random_type_method(self) -> tuple[TypeName, Callable]:
         if self.context._depth < self.context.max_depth:
             types = BASIC_TYPES
         else:
@@ -1438,9 +1441,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         return type_, generator
 
     def jsonschema_any(self) -> JsonT:
-        """
-        We should generate a random element of any type. No restrictions.
-        """
+        """We should generate a random element of any type. No restrictions."""
         _, generator = self._random_type_method()
         return generator()
 
@@ -1497,17 +1498,17 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
     def jsonschema_array(
         self,
-        items: Optional[SchemaT] = None,
-        prefix_items: Optional[List[SchemaT]] = None,
-        additional_items: Optional[Union[bool, SchemaT]] = None,
-        unevaluated_items: Optional[Union[bool, SchemaT]] = None,
-        contains: Optional[SchemaT] = None,
-        min_contains: Optional[int] = None,
-        max_contains: Optional[int] = None,
+        items: SchemaT | None = None,
+        prefix_items: list[SchemaT] | None = None,
+        additional_items: bool | SchemaT | None = None,
+        unevaluated_items: bool | SchemaT | None = None,
+        contains: SchemaT | None = None,
+        min_contains: int | None = None,
+        max_contains: int | None = None,
         min_items: int = 0,
-        max_items: Optional[int] = None,
+        max_items: int | None = None,
         unique_items: bool = False,
-    ) -> List[JsonT]:
+    ) -> list[JsonT]:
         """
         Generate a list conforming to JSON Schema array constraints.
 
@@ -1528,7 +1529,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         n_prefix = len(prefix_items)
 
         # Determine the schema for remaining (non-prefix) items
-        remaining_schema: Optional[SchemaT] = None
+        remaining_schema: SchemaT | None = None
         if prefix_items and items is not None:
             # Draft 2020-12: items applies after prefixItems
             # items: false → no additional items beyond prefix
@@ -1666,7 +1667,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         # When maxContains is set, remaining items might accidentally match
         # the contains schema.  Track how many contains-matches we have so
         # far and reject items that would push us over maxContains.
-        _contains_budget: Optional[int] = None  # None = unlimited
+        _contains_budget: int | None = None  # None = unlimited
         if contains is not None and max_contains is not None:
             # contains_items were generated to match; count them against the budget
             _contains_budget = max_contains - len(contains_items)
@@ -1781,17 +1782,17 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
     def jsonschema_object(
         self,
-        properties: Optional[Dict[str, SchemaT]] = None,
-        pattern_properties: Optional[Dict[str, SchemaT]] = None,
-        property_names: Optional[SchemaT] = None,
-        required: Optional[List[str]] = None,
-        additional_properties: Union[bool, SchemaT] = True,
-        unevaluated_properties: Union[bool, SchemaT, None] = None,
+        properties: dict[str, SchemaT] | None = None,
+        pattern_properties: dict[str, SchemaT] | None = None,
+        property_names: SchemaT | None = None,
+        required: list[str] | None = None,
+        additional_properties: bool | SchemaT = True,
+        unevaluated_properties: bool | SchemaT | None = None,
         min_properties: int = 0,
-        max_properties: Optional[int] = None,
-        dependent_required: Optional[Dict[str, List[str]]] = None,
-        dependent_schemas: Optional[Dict[str, SchemaT]] = None,
-    ) -> Dict[str, JsonT]:
+        max_properties: int | None = None,
+        dependent_required: dict[str, list[str]] | None = None,
+        dependent_schemas: dict[str, SchemaT] | None = None,
+    ) -> dict[str, JsonT]:
         """
         Generate fake data conforming to a JSON Schema object type.
 
@@ -1834,7 +1835,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         generated = {}
 
         def _schema_for_key(attr: str) -> SchemaT:
-            """Determine the schema for a property key.
+            """
+            Determine the schema for a property key.
 
             Checks properties, then patternProperties, then
             additionalProperties (if schema), else empty schema.
@@ -2014,14 +2016,15 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         return getattr(self, self.BASE_METHOD_MAP[type_])(schema[type_.value])
 
     @nullable_or_enum
-    def _jsonschema_any_from_schema(self, _: SchemaT) -> Optional[JsonT]:
+    def _jsonschema_any_from_schema(self, _: SchemaT) -> JsonT | None:
         # NOTE: `any` can still be `nullable` (...or `enum`?)
         # NOTE: `nullable_or_enum` needs the schema arg
         return self.jsonschema_any()
 
     def _from_schema(self, schema: SchemaT):
         """
-        IMPORTANT:
+        Generate from schema (internal recursive entry point).
+
         All recursive calls should use this private method instead of the
         public `from_schema` below so that `context._depth` is not reset.
         """
@@ -2110,7 +2113,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             return self._jsonschema_basic_type_from_schema(schema, type_)
 
     def _apply_if_then_else(self, schema: SchemaT) -> SchemaT:
-        """Apply if/then/else by randomly choosing a branch.
+        """
+        Apply if/then/else by randomly choosing a branch.
 
         Randomly decide whether to satisfy the ``if`` condition.  When
         satisfied and ``then`` is present, merge ``then`` constraints into
@@ -2153,7 +2157,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
     @staticmethod
     def _shallow_merge_branch(base: SchemaT, branch: SchemaT) -> SchemaT:
-        """Merge *branch* into *base* with shallow dict/list handling.
+        """
+        Merge *branch* into *base* with shallow dict/list handling.
 
         Used as a fallback when :func:`_merge_schemas` cannot be applied
         (e.g., no ``type`` on the base schema).
@@ -2175,7 +2180,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         return result
 
     def _resolve_ref(self, schema: SchemaT) -> SchemaT:
-        """Resolve a ``$ref`` against the root schema's ``$defs``/``definitions``.
+        """
+        Resolve a ``$ref`` against the root schema's ``$defs``/``definitions``.
 
         If the reference is a JSON pointer of the form ``#/$defs/<name>`` or
         ``#/definitions/<name>``, look into the root schema stored on
@@ -2199,12 +2205,14 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         # stop to prevent infinite recursion.  We use a generous limit
         # (3x max_depth) because optional circular refs legitimately
         # recurse a few times before depth limiting kicks in.
-        if ref in self.context._ref_stack:
-            if self.context._depth >= self.context.max_depth * 3:
-                raise UnsatisfiableConstraintsError(
-                    f"Circular $ref {ref!r} detected at depth "
-                    f"{self.context._depth} (max_depth={self.context.max_depth})."
-                )
+        if (
+            ref in self.context._ref_stack
+            and self.context._depth >= self.context.max_depth * 3
+        ):
+            raise UnsatisfiableConstraintsError(
+                f"Circular $ref {ref!r} detected at depth "
+                f"{self.context._depth} (max_depth={self.context.max_depth})."
+            )
 
         resolved = None
         if ref.startswith("#/"):
@@ -2212,10 +2220,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             pointer = ref[2:].split("/")
             target = root
             for part in pointer:
-                if isinstance(target, dict):
-                    target = target.get(part)
-                else:
-                    target = None
+                target = target.get(part) if isinstance(target, dict) else None
                 if target is None:
                     break
             if target is not None and isinstance(target, dict):

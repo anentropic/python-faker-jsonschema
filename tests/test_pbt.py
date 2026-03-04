@@ -11,10 +11,10 @@ needing an external oracle.
 import os
 import random
 
-from hypothesis import given, settings, HealthCheck
+from faker import Faker
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from jsonschema import validate
-from faker import Faker
 
 from faker_jsonschema.provider import JSONSchemaProvider, UnsatisfiableConstraintsError
 
@@ -228,7 +228,7 @@ def test_pbt_any_schema_round_trip(schema):
     deadline=None,
 )
 def test_pbt_allof_integer(schema1, schema2):
-    """allOf with two integer schemas → result valid against both."""
+    """AllOf with two integer schemas → result valid against both."""
     merged_min = max(schema1.get("minimum", -9999), schema2.get("minimum", -9999))
     merged_max = min(schema1.get("maximum", 9999), schema2.get("maximum", 9999))
     if merged_max < merged_min:
