@@ -22,6 +22,7 @@ class IntInf(int):
     https://github.com/NeilGirdhar/extended_int
     (but that one does not pass an isinstance(int) check)
     """
+
     def __init__(self):
         pass
 

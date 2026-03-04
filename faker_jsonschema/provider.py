@@ -133,9 +133,7 @@ class StringFormat:
     lengths: Optional[Union[Iterable[int], range]] = None
     return_type: StrT = str
 
-    def validate_constraints(
-        self, min_length: int, max_length: Optional[int]
-    ) -> bool:
+    def validate_constraints(self, min_length: int, max_length: Optional[int]) -> bool:
         assert min_length >= 0
         assert max_length is None or max_length >= 0
         # VARIABLE_SINGULAR and VARIABLE_RANGE mean we can specify the length
@@ -148,8 +146,8 @@ class StringFormat:
                 assert self.lengths.step > 0
                 if self.length_type is not LengthType.VARIABLE_RANGE:
                     return all(
-                        len_ >= min_length and (
-                            max_length is None or len_ <= max_length)
+                        len_ >= min_length
+                        and (max_length is None or len_ <= max_length)
                         for len_ in self.lengths
                     )
                 start = self.lengths.start
@@ -158,7 +156,9 @@ class StringFormat:
                 if min_length <= start:
                     nearest_to_min = start
                 else:
-                    nearest_to_min = start + (((min_length - start + step - 1) // step) * step)
+                    nearest_to_min = start + (
+                        ((min_length - start + step - 1) // step) * step
+                    )
                 if nearest_to_min >= stop:
                     return False
                 if max_length is not None and nearest_to_min > max_length:
@@ -166,8 +166,7 @@ class StringFormat:
                 return True
             else:
                 return all(
-                    len_ >= min_length and (
-                        max_length is None or len_ <= max_length)
+                    len_ >= min_length and (max_length is None or len_ <= max_length)
                     for len_ in self.lengths
                 )
         else:
@@ -184,6 +183,7 @@ class JsonVal(ObjectProxy):
     """
     "At last, I can put a dict in a set..."
     """
+
     def __init__(self, val: JsonT):
         super().__init__(val)
         self._self_hash = hash(json.dumps(val))
@@ -206,6 +206,7 @@ def nullable_or_enum(f):
     handle `nullable` and `enum` properties which are kind of
     orthogonal to the rest of the types.
     """
+
     @wraps(f)
     def wrapped(self, schema: SchemaT, *args, **kwargs):
         if schema.get("nullable") and self.generator.random_int(0, 1):
@@ -213,6 +214,7 @@ def nullable_or_enum(f):
         if "enum" in schema:
             return self.jsonschema_enum(JsonEnum(schema["enum"]))
         return f(self, schema, *args, **kwargs)
+
     return wrapped
 
 
@@ -387,9 +389,7 @@ def kwargs_from_schema_factory(method):
         return f"{match.groups()[0].upper()}"
 
     getters = {
-        arg: operator.itemgetter(
-            re.sub(snake_case, to_camel_case, arg).rstrip("_")
-        )
+        arg: operator.itemgetter(re.sub(snake_case, to_camel_case, arg).rstrip("_"))
         for arg in arg_names
         if arg != "self"
     }
@@ -407,7 +407,6 @@ def kwargs_from_schema_factory(method):
 
 
 class JSONSchemaProviderMetaclass(type):
-
     def __new__(cls, name, bases, attrs):
         cls = type.__new__(cls, name, bases, attrs)
         # attach pre-generated kwargs-from-schema getters to the
@@ -420,7 +419,6 @@ class JSONSchemaProviderMetaclass(type):
 
 
 class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
-
     STRING_FORMATS = {
         # defined in OpenAPI spec:
         # ----------
@@ -686,15 +684,11 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                         f"{max_length} are incompatible with format: {format_}."
                     )
 
-                method = getattr(
-                    self, "_format_{}".format(format_.replace("-", "_"))
-                )
+                method = getattr(self, "_format_{}".format(format_.replace("-", "_")))
                 if format_type.length_type is LengthType.FIXED:
                     return method()
                 elif format_type.length_type is LengthType.VARIABLE_SINGULAR:
-                    return method(
-                        length=self._safe_random_int(min_length, max_length)
-                    )
+                    return method(length=self._safe_random_int(min_length, max_length))
                 elif format_type.length_type is LengthType.VARIABLE_RANGE:
                     return method(
                         min_length=min_length,
@@ -716,7 +710,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             # (...has a min length generatable of 5 chars)
             generator = partial(
                 self.generator.text,
-                max_nb_chars=max_length if max_length is not None else 255
+                max_nb_chars=max_length if max_length is not None else 255,
             )
             # NOTE: we will 'fall through' if no valid example can be found
             try:
@@ -736,7 +730,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         `faker.pyfloat` only supports int for min and max value
         """
         if None not in (min_value, max_value) and min_value > max_value:
-            raise ValueError('min_value cannot be greater than max_value')
+            raise ValueError("min_value cannot be greater than max_value")
         if None not in (min_value, max_value) and min_value == max_value:
             # `faker.pyfloat` doesn't allow this but I don't see why not
             return float(min_value)
@@ -784,14 +778,18 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         multiple_of: Optional[Number] = None,
     ) -> Number:
         if mode is NumberMode.FLOAT:
+
             def _make_safe(val):
                 return Decimal(str(val)) if val is not None else val
+
             _cast: Final = float
             _offset: Final = self.FLOAT_OFFSET
             _generator: Final = self.better_pyfloat
         elif mode is NumberMode.INTEGER:
+
             def _make_safe(val):
                 return val
+
             _cast: Final = int
             _offset: Final = 1
             _generator: Final = self._safe_random_int
@@ -839,8 +837,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         if minimum is not None and minimum == maximum:
             # (returns early)
             if (
-                multiple_of is not None and
-                Decimal(str(minimum)) % Decimal(str(multiple_of)) != 0
+                multiple_of is not None
+                and Decimal(str(minimum)) % Decimal(str(multiple_of)) != 0
             ):
                 raise UnsatisfiableConstraintsError(
                     f"cannot satisfy constraints multipleOf: {multiple_of}, "
@@ -867,9 +865,9 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
         def valid_range() -> bool:
             return (
-                (safe_min % multiple_of == 0 and not exclusive_min) or
-                (safe_max % multiple_of == 0 and not exclusive_max) or
-                int(safe_min / multiple_of) != int(safe_max / multiple_of)
+                (safe_min % multiple_of == 0 and not exclusive_min)
+                or (safe_max % multiple_of == 0 and not exclusive_max)
+                or int(safe_min / multiple_of) != int(safe_max / multiple_of)
             )
 
         if None in (minimum, maximum):
@@ -962,9 +960,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         """
         schema_map = {
             k: list(v)
-            for k, v in itertools.groupby(
-                sorted(schemas, key=type_getter), type_getter
-            )
+            for k, v in itertools.groupby(sorted(schemas, key=type_getter), type_getter)
         }
         type_ = self.generator.random_element(schema_map.keys())
         type_schemas = schema_map[type_]
@@ -987,9 +983,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         """
         schema_map = {
             k: list(v)
-            for k, v in itertools.groupby(
-                sorted(schemas, key=type_getter), type_getter
-            )
+            for k, v in itertools.groupby(sorted(schemas, key=type_getter), type_getter)
         }
         if len(schema_map) > 1:
             raise UnsatisfiableConstraintsError(
@@ -1030,6 +1024,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         Raises:
             NoExampleFoundError
         """
+
         def is_valid(val) -> bool:
             try:
                 validate(val, schema)
@@ -1065,14 +1060,10 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
     def _get_collection_max(self, min_: int):
         if min_ > self.context.default_collection_max:
             return self.generator.random_int(
-                min_,
-                min_ + self.context.default_collection_max
+                min_, min_ + self.context.default_collection_max
             )
         else:
-            return self.generator.random_int(
-                min_,
-                self.context.default_collection_max
-            )
+            return self.generator.random_int(min_, self.context.default_collection_max)
 
     def jsonschema_array(
         self,
@@ -1088,10 +1079,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         """
         if min_items < 0:
             raise ValueError("minItems must be >= 0")
-        if (
-            max_items is not None and
-            min_items > max_items
-        ):
+        if max_items is not None and min_items > max_items:
             raise ValueError("maxItems must be >= minItems")
 
         if items is None:
@@ -1152,15 +1140,12 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         """
         if min_properties < 0:
             raise ValueError("minProperties must be >= 0")
-        if (
-            max_properties is not None and
-            min_properties > max_properties
-        ):
+        if max_properties is not None and min_properties > max_properties:
             raise ValueError("maxProperties must be >= minProperties")
         if (
-            max_properties is not None and
-            required is not None and
-            max_properties < len(required)
+            max_properties is not None
+            and required is not None
+            and max_properties < len(required)
         ):
             raise UnsatisfiableConstraintsError(
                 f"Cannot satisfy maxProperties: {max_properties} when "
@@ -1237,9 +1222,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 if len(generated) >= max_properties:
                     break
                 # check if any already-generated key matches this pattern
-                already_matched = any(
-                    re.search(pattern, k) for k in generated
-                )
+                already_matched = any(re.search(pattern, k) for k in generated)
                 if already_matched and min_needed <= 0:
                     continue
                 # generate a key name matching the pattern
@@ -1256,14 +1239,12 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         # generate 'additional' (not in schema) properties?
         min_needed = max(0, min_properties - len(generated))
         if (
-            _allows_additional and
-            len(generated) < max_properties and
-            (min_needed > 0 or self.generator.random_int(0, 1))
+            _allows_additional
+            and len(generated) < max_properties
+            and (min_needed > 0 or self.generator.random_int(0, 1))
         ):
             _remaining = max_properties - len(generated)
-            _count = self.generator.random_int(
-                min(min_needed, _remaining), _remaining
-            )
+            _count = self.generator.random_int(min(min_needed, _remaining), _remaining)
             if og_max_properties is None:
                 # lots of additional_properties just feels weird
                 _surplus = _count - min_needed
@@ -1289,14 +1270,10 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
             # generate values — use additionalProperties schema if provided
             _val_schema = (
-                additional_properties
-                if isinstance(additional_properties, dict)
-                else {}
+                additional_properties if isinstance(additional_properties, dict) else {}
             )
             for name in generated_names:
-                generated[name] = self.descend_into(self._from_schema)(
-                    _val_schema
-                )
+                generated[name] = self.descend_into(self._from_schema)(_val_schema)
 
         # enforce dependentRequired: if a trigger key is present,
         # all its dependent keys must also be present
@@ -1306,9 +1283,9 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                     for dep in deps:
                         if dep not in generated:
                             schema = _schema_for_key(dep)
-                            generated[dep] = self.descend_into(
-                                self._from_schema
-                            )(schema)
+                            generated[dep] = self.descend_into(self._from_schema)(
+                                schema
+                            )
 
         # enforce dependentSchemas: if a trigger key is present,
         # merge the dependent schema constraints into the result
@@ -1322,15 +1299,15 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                     for dep_key in dep_required:
                         if dep_key not in generated:
                             sub = dep_props.get(dep_key, {})
-                            generated[dep_key] = self.descend_into(
-                                self._from_schema
-                            )(sub)
+                            generated[dep_key] = self.descend_into(self._from_schema)(
+                                sub
+                            )
                         elif dep_key in dep_props:
                             # re-generate to match the dependent schema
                             sub = dep_props[dep_key]
-                            generated[dep_key] = self.descend_into(
-                                self._from_schema
-                            )(sub)
+                            generated[dep_key] = self.descend_into(self._from_schema)(
+                                sub
+                            )
 
         # enforce unevaluatedProperties
         if unevaluated_properties is not None:
@@ -1371,14 +1348,10 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
     def _jsonschema_compound_type_from_schema(
         self, schema: SchemaT, type_: TypeName
     ) -> JsonT:
-        return getattr(self, self.BASE_METHOD_MAP[type_])(
-            schema[type_.value]
-        )
+        return getattr(self, self.BASE_METHOD_MAP[type_])(schema[type_.value])
 
     @nullable_or_enum
-    def _jsonschema_any_from_schema(
-        self, _: SchemaT
-    ) -> Optional[JsonT]:
+    def _jsonschema_any_from_schema(self, _: SchemaT) -> Optional[JsonT]:
         # NOTE: `any` can still be `nullable` (...or `enum`?)
         # NOTE: `nullable_or_enum` needs the schema arg
         return self.jsonschema_any()
@@ -1398,9 +1371,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         except KeyError:
             for type_ in COMPOUND_TYPES:
                 if type_.value in schema:
-                    return self._jsonschema_compound_type_from_schema(
-                        schema, type_
-                    )
+                    return self._jsonschema_compound_type_from_schema(schema, type_)
             else:
                 return self._jsonschema_any_from_schema(schema)
         else:
@@ -1415,11 +1386,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         ``else`` constraints instead.  The ``if``, ``then``, and ``else``
         keys are stripped from the returned schema.
         """
-        result = {
-            k: v for k, v in schema.items()
-            if k not in ("if", "then", "else")
-        }
-        if_schema = schema["if"]
+        result = {k: v for k, v in schema.items() if k not in ("if", "then", "else")}
         then_schema = schema.get("then", {})
         else_schema = schema.get("else", {})
 
@@ -1453,6 +1420,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 return f(*args, **kwargs)
             finally:
                 self.context._depth -= 1
+
         return wrapped
 
     @property
@@ -1465,11 +1433,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
     def _(self, context: Context):
         self._context = context
 
-    def from_schema(
-        self,
-        schema: SchemaT,
-        **context
-    ):
+    def from_schema(self, schema: SchemaT, **context):
         self._context = Context(**context)
         try:
             return self._from_schema(schema)

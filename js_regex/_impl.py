@@ -1,4 +1,5 @@
 """The implementation of the js-regex library."""
+
 from __future__ import unicode_literals
 
 import re
