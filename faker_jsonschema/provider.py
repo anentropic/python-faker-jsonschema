@@ -1,3 +1,4 @@
+import datetime
 import inspect
 import itertools
 import json
@@ -198,7 +199,7 @@ EnumVal = TypeVar("EnumVal", bound=JsonT)
 
 
 class JsonEnum(FrozenSet[JsonVal]):
-    def __new__(cls, values: Iterable[EnumVal]) -> "JsonEnum[EnumVal]":
+    def __new__(cls, values: Iterable[EnumVal]) -> "JsonEnum":
         return super().__new__(cls, (JsonVal(val) for val in values))
 
 
@@ -228,10 +229,16 @@ class Context:
     default_collection_max: Final[int] = 50
     default_property_schema = {"type": "string", "format": "user_name"}
     _root_schema: Optional[SchemaT] = None
+    _ref_stack: list = None  # type: ignore[assignment]
+
+    def __post_init__(self):
+        if self._ref_stack is None:
+            self._ref_stack = []
 
 
 L = TypeVar("L", bound=JsonT)
 R = TypeVar("R", bound=JsonT)
+T = TypeVar("T")
 
 
 def _merge_constraint(
@@ -251,7 +258,7 @@ def _merge_constraint(
             return None
 
 
-def _resolve_equal_or_error(left: L, right: R) -> L:
+def _resolve_equal_or_error(left: L, right: JsonT) -> L:
     if left == right:
         return left
     else:
@@ -320,7 +327,21 @@ def _resolve_dependent_schemas(
 
 
 def _merge_schemas(left: SchemaT, right: SchemaT) -> SchemaT:
-    assert left["type"] == right["type"]
+    left_type = left.get("type")
+    right_type = right.get("type")
+    if left_type is None and right_type is None:
+        # Neither schema has a type — just shallow-merge keys.
+        merged = left.copy()
+        merged.update(right)
+        return merged
+    if left_type is None:
+        left = {**left, "type": right_type}
+    elif right_type is None:
+        right = {**right, "type": left_type}
+    elif left_type != right_type:
+        raise UnsatisfiableConstraintsError(
+            f"Cannot merge schemas with different types: {left_type} vs {right_type}"
+        )
     type_ = TypeName(left["type"])
     attr_map = TYPE_ATTR_MERGE_RESOLVERS[type_]
     merged = left.copy()
@@ -543,7 +564,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         for type_name in TypeName
     }
 
-    _context: Context = None
+    _context: Optional["Context"] = None
 
     def jsonschema_enum(self, enum: JsonEnum) -> JsonT:
         # enum contains actual values, not sub-schema
@@ -609,8 +630,6 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         """RFC 3339 §5.6 full-time, e.g. '17:32:28+00:00'."""
         t = self.generator.time(pattern="%H:%M:%S")
         tz = pytz.timezone(self.generator.timezone())
-        import datetime
-
         offset = tz.utcoffset(datetime.datetime.now())
         if offset is None or offset == datetime.timedelta(0):
             return f"{t}Z"
@@ -805,8 +824,6 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 return False
             return True
 
-        T = TypeVar("T")
-
         def search(generator: Callable[..., T]) -> T:
             for _ in range(self.context.max_search):
                 example = generator()
@@ -936,22 +953,229 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         """
         if None not in (min_value, max_value) and min_value == max_value:
             return min_value
-        orig_min_value = min_value
-        orig_max_value = max_value
 
-        if min_value is None and max_value is None:
-            a, b = self.random_int(), self.random_int()
-            min_value = min(a, b)
-            max_value = max(a, b)
-        elif min_value is None:
-            min_value = max_value - self.random_int()
-        elif max_value is None:
-            max_value = min_value + self.random_int()
+        for _ in range(100):
+            a_min = min_value
+            a_max = max_value
 
-        if min_value == max_value:
-            return self._safe_random_int(orig_min_value, orig_max_value)
+            if a_min is None and a_max is None:
+                a, b = self.random_int(), self.random_int()
+                a_min = min(a, b)
+                a_max = max(a, b)
+            elif a_min is None:
+                a_min = a_max - self.random_int()
+            elif a_max is None:
+                a_max = a_min + self.random_int()
+
+            if a_min != a_max:
+                return self.random_int(a_min, a_max - 1)
+
+        # fallback: if we couldn't get a range after 100 attempts,
+        # return min_value or max_value or 0
+        return (
+            min_value
+            if min_value is not None
+            else (max_value if max_value is not None else 0)
+        )
+
+    # ── Finite-domain detection for uniqueItems ──────────────────────
+
+    #: Largest domain we'll enumerate exhaustively.  Keeps memory and
+    #: generation time bounded while covering all practical cases
+    #: (bounded integers up to 1000, enums, booleans, etc.).
+    _FINITE_DOMAIN_MAX: Final[int] = 1000
+
+    @staticmethod
+    def _matches_schema(value: JsonT, schema: SchemaT) -> bool:
+        """Return True if *value* validates against *schema*."""
+        try:
+            validate(value, schema)
+            return True
+        except ValidationError:
+            return False
+
+    def _generate_remaining_items(
+        self,
+        generate_item: Callable[[], JsonT],
+        count: int,
+        unique_items: bool,
+        existing: list[JsonT],
+        accept_item: Callable[[JsonT], bool],
+        contains: Optional[SchemaT],
+        contains_budget: Optional[int],
+        retry_factor: int = 3,
+    ) -> list[JsonT]:
+        """Generate *count* array items with shared uniqueness/duplicate logic.
+
+        Parameters
+        ----------
+        generate_item:
+            Zero-arg callable that produces one item.
+        count:
+            Target number of items to generate.
+        unique_items:
+            When ``True``, reject duplicate items.
+        existing:
+            Items already in the array (for uniqueness checks).
+        accept_item:
+            Callable that returns ``True`` if the item is acceptable
+            (e.g. not exceeding ``maxContains``).
+        contains:
+            The ``contains`` sub-schema, if any (used for duplicate top-up
+            budget filtering).
+        contains_budget:
+            Remaining budget for contains-matching items, or ``None``.
+        retry_factor:
+            Multiplier on ``actual_count`` for the retry loop (schema-based
+            generation uses 3; random-type generation uses 1).
+        """
+        dup_count = 0
+        actual_count = count
+        if not unique_items and actual_count > 1:
+            dup_count = self.generator.random_int(0, actual_count // 2)
+            actual_count -= dup_count
+
+        items: list[JsonT] = []
+        duplicates: list[JsonT] = []
+        for _ in range(max(actual_count * retry_factor, actual_count)):
+            item = generate_item()
+            if unique_items and (item in existing or item in items):
+                pass
+            elif not accept_item(item):
+                pass  # would exceed maxContains
+            else:
+                items.append(item)
+            if not unique_items and len(duplicates) < dup_count:
+                if (item in existing or item in items) and accept_item(item):
+                    duplicates.append(item)
+            if len(items) >= actual_count:
+                break
+
+        if not unique_items:
+            if len(duplicates) < dup_count and items:
+                diff = dup_count - len(duplicates)
+                pool = items
+                if contains_budget is not None and contains is not None:
+                    pool = [x for x in items if not self._matches_schema(x, contains)]
+                    if not pool:
+                        pool = items  # best effort
+                top_up = self.generator.random_sample(pool, length=min(diff, len(pool)))
+                for dup_item in top_up:
+                    if accept_item(dup_item):
+                        duplicates.append(dup_item)
+            items.extend(duplicates)
+
+        return items
+
+    def _enumerate_finite_domain(self, schema: SchemaT) -> Optional[list[JsonT]]:
+        """Return all possible values for *schema*, or ``None`` if the domain
+        is infinite or too large to enumerate.
+
+        Recognised finite domains
+        ─────────────────────────
+        • ``{"type": "boolean"}``                          → [false, true]
+        • ``{"type": "null"}``                             → [null]
+        • ``{"enum": [...]}``                              → the enum values
+        • ``{"const": x}``                                 → [x]
+        • ``{"type": "integer", "minimum": a, "maximum": b}``
+           (with optional exclusive variants and multipleOf)
+        • nullable variants of all the above (adds ``null``)
+        • ``{"type": ["boolean", "null"]}`` etc.           → union of types
+        """
+        # const — always a single value
+        if "const" in schema:
+            return [schema["const"]]
+
+        # enum — explicit finite set
+        if "enum" in schema:
+            vals = list(schema["enum"])
+            return vals if len(vals) <= self._FINITE_DOMAIN_MAX else None
+
+        type_val = schema.get("type")
+        if type_val is None:
+            return None
+
+        # type as array: union of types, e.g. ["boolean", "null"]
+        if isinstance(type_val, list):
+            combined: list[JsonT] = []
+            seen: set[JsonVal] = set()
+            for t in type_val:
+                sub = self._enumerate_finite_domain({**schema, "type": t})
+                if sub is None:
+                    return None
+                for v in sub:
+                    key = JsonVal(v)
+                    if key not in seen:
+                        seen.add(key)
+                        combined.append(v)
+                if len(combined) > self._FINITE_DOMAIN_MAX:
+                    return None
+            return combined
+
+        nullable = schema.get("nullable", False)
+
+        if type_val == "boolean":
+            domain: list[JsonT] = [False, True]
+            if nullable:
+                domain.append(None)
+            return domain
+
+        if type_val == "null":
+            return [None]
+
+        if type_val == "integer":
+            domain_or_none = self._enumerate_integer_domain(schema)
+            if domain_or_none is None:
+                return None
+            if nullable and None not in domain_or_none:
+                domain_or_none.append(None)
+            return domain_or_none
+
+        return None
+
+    def _enumerate_integer_domain(self, schema: SchemaT) -> Optional[list[JsonT]]:
+        """Enumerate all integers satisfying the schema's bounds, or ``None``
+        if unbounded / too large."""
+        lo = schema.get("minimum")
+        hi = schema.get("maximum")
+        excl_lo = schema.get("exclusiveMinimum")
+        excl_hi = schema.get("exclusiveMaximum")
+
+        # Resolve exclusive bounds (draft-06+ numeric values take precedence)
+        if excl_lo is not None:
+            eff_lo = excl_lo + 1  # integer exclusive → +1
+        elif lo is not None:
+            eff_lo = lo
         else:
-            return self.random_int(min_value, max_value - 1)
+            return None  # unbounded below
+
+        if excl_hi is not None:
+            eff_hi = excl_hi - 1  # integer exclusive → -1
+        elif hi is not None:
+            eff_hi = hi
+        else:
+            return None  # unbounded above
+
+        if eff_hi < eff_lo:
+            return []  # empty domain (unsatisfiable, but not our job here)
+
+        multiple_of = schema.get("multipleOf")
+        if multiple_of is not None:
+            if multiple_of <= 0:
+                return None
+            # Find first multiple >= eff_lo
+            first = math.ceil(eff_lo / multiple_of) * multiple_of
+            if first > eff_hi:
+                return []
+            count = (eff_hi - first) // multiple_of + 1
+            if count > self._FINITE_DOMAIN_MAX:
+                return None
+            return [int(first + i * multiple_of) for i in range(int(count))]
+
+        count = eff_hi - eff_lo + 1
+        if count > self._FINITE_DOMAIN_MAX:
+            return None
+        return list(range(int(eff_lo), int(eff_hi) + 1))
 
     def _jsonschema_number(
         self,
@@ -974,8 +1198,10 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             _generator: Final = self.better_pyfloat
         elif mode is NumberMode.INTEGER:
 
-            def _make_safe(val):
+            def _make_safe_int(val):
                 return val
+
+            _make_safe = _make_safe_int
 
             _cast: Final = int
             _offset: Final = 1
@@ -1016,10 +1242,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 )
 
         def offset_val(val, op):
-            offset = _offset
-            if val < 0:
-                offset = 0 - offset
-            return op(val, offset)
+            return op(val, _offset)
 
         # `better_pyfloat` range is inclusive
         if exclusive_min and minimum is not None:
@@ -1084,10 +1307,10 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 if valid_range():
                     break
             else:
-                raise StopIteration(
-                    "Could not find a valid minimum and maximum in 100 iterations",
-                    minimum,
-                    maximum,
+                raise UnsatisfiableConstraintsError(
+                    f"Could not find a valid range for multipleOf: {multiple_of}, "
+                    f"minimum: {original_min}, maximum: {original_max} "
+                    f"in 100 iterations"
                 )
         else:
             # minmimum and maximum were both specified
@@ -1241,8 +1464,6 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 return False
             return True
 
-        T = TypeVar("T")
-
         def search(generator: Callable[..., T]) -> T:
             for _ in range(self.context.max_search):
                 example = generator()
@@ -1348,76 +1569,199 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         if remaining_schema is None and prefix_items:
             max_items = min(max_items, n_prefix)
 
-        # Ensure we have at least enough items for prefix
+        # ── Plan contains items upfront ─────────────────────────────
+        # Instead of generating the array and hoping items match contains,
+        # we decide how many contains-matching items to produce first,
+        # generate them from the contains schema, then fill remaining
+        # slots from the items/remaining schema.
+        n_contains_target = 0
+        if contains is not None:
+            eff_min_c = min_contains if min_contains is not None else 1
+            eff_max_c = max_contains
+
+            # How many slots are available after prefix items?
+            capacity = max_items - n_prefix
+            capacity = max(capacity, 0)
+
+            # Upper bound for contains items to generate
+            if eff_max_c is not None:
+                upper = min(eff_max_c, capacity)
+            else:
+                # No maxContains — generate a few more than the minimum
+                upper = min(eff_min_c + 2, capacity)
+            upper = max(upper, eff_min_c)
+
+            if capacity >= eff_min_c:
+                n_contains_target = self._safe_random_int(eff_min_c, upper)
+            else:
+                # Can't fit minContains — best effort
+                n_contains_target = max(capacity, 0)
+
+        # Ensure we have at least enough items for prefix + contains
         effective_min = max(min_items, n_prefix) if prefix_items else min_items
+        if n_contains_target > 0:
+            effective_min = max(effective_min, n_prefix + n_contains_target)
+        # Clamp to max_items in case of conflicting constraints
+        effective_min = min(effective_min, max_items)
 
         count = self._safe_random_int(effective_min, max_items)
 
+        # When uniqueItems is requested, cap count at the domain size so we
+        # never ask for more unique values than actually exist.
+        if unique_items and remaining_schema is not None:
+            domain = self._enumerate_finite_domain(remaining_schema)
+            if domain is not None:
+                # Also account for contains domain extending the pool
+                if contains is not None:
+                    contains_domain_pre = self._enumerate_finite_domain(contains)
+                    if contains_domain_pre is not None:
+                        all_vals = {JsonVal(v) for v in domain}
+                        for v in contains_domain_pre:
+                            all_vals.add(JsonVal(v))
+                        total_unique = len(all_vals) + n_prefix
+                    else:
+                        # contains domain unknown — can't bound precisely
+                        total_unique = None
+                else:
+                    total_unique = len(domain) + n_prefix
+                if total_unique is not None and count > total_unique:
+                    count = max(effective_min, min(count, total_unique))
+
         # Generate prefix items
-        generated = []
+        generated: list[JsonT] = []
         for i in range(min(count, n_prefix)):
             item = self.descend_into(self._from_schema)(prefix_items[i])
             generated.append(item)
 
-        # Generate remaining items
-        remaining_count = count - len(generated)
+        # Generate contains items from the contains schema
+        contains_items: list[JsonT] = []
+        if n_contains_target > 0 and contains is not None:
+            # Clamp in case count can't fit all planned contains items
+            n_contains_target = min(n_contains_target, count - len(generated))
+
+            # Finite-domain fast path for uniqueItems
+            contains_domain = (
+                self._enumerate_finite_domain(contains) if unique_items else None
+            )
+            if unique_items and contains_domain is not None:
+                # Remove already-used values (from prefix items)
+                used = {JsonVal(v) for v in generated}
+                available = [v for v in contains_domain if JsonVal(v) not in used]
+                take = min(n_contains_target, len(available))
+                contains_items = self.generator.random_sample(available, length=take)
+            else:
+                for _ in range(n_contains_target * 3):  # retries for uniqueItems
+                    item = self.descend_into(self._from_schema)(contains)
+                    if unique_items and (item in generated or item in contains_items):
+                        continue
+                    contains_items.append(item)
+                    if len(contains_items) >= n_contains_target:
+                        break
+
+        # Generate remaining items from items/remaining schema
+        remaining_count = count - len(generated) - len(contains_items)
+        remaining_count = max(remaining_count, 0)
+        remaining: list[JsonT] = []
+
+        # When maxContains is set, remaining items might accidentally match
+        # the contains schema.  Track how many contains-matches we have so
+        # far and reject items that would push us over maxContains.
+        _contains_budget: Optional[int] = None  # None = unlimited
+        if contains is not None and max_contains is not None:
+            # contains_items were generated to match; count them against the budget
+            _contains_budget = max_contains - len(contains_items)
+            # prefix items might also match
+            for item in generated:
+                try:
+                    validate(item, contains)
+                    _contains_budget -= 1
+                except ValidationError:
+                    pass
+
+        def _accept_item(item: JsonT) -> bool:
+            """Return True if item is allowed w.r.t. maxContains budget."""
+            nonlocal _contains_budget
+            if _contains_budget is None:
+                return True
+            try:
+                validate(item, contains)
+            except ValidationError:
+                return True  # doesn't match contains → always OK
+            # Matches contains — only accept if we have budget left
+            if _contains_budget > 0:
+                _contains_budget -= 1
+                return True
+            return False
+
         if remaining_count > 0 and remaining_schema is not None:
-            dup_count = 0
-            actual_count = remaining_count
-            if not unique_items and actual_count > 1:
-                dup_count = self.generator.random_int(0, actual_count // 2)
-                actual_count -= dup_count
-
-            remaining = []
-            duplicates = []
-            for _ in range(actual_count * 3):  # allow retries for uniqueness
-                item = self.descend_into(self._from_schema)(remaining_schema)
-                if unique_items and (item in generated or item in remaining):
-                    if not unique_items and len(duplicates) < dup_count:
-                        duplicates.append(item)
+            # Finite-domain fast path for uniqueItems
+            remaining_domain = (
+                self._enumerate_finite_domain(remaining_schema)
+                if unique_items
+                else None
+            )
+            if unique_items and remaining_domain is not None:
+                used = {JsonVal(v) for v in generated + contains_items}
+                available = [v for v in remaining_domain if JsonVal(v) not in used]
+                # Also filter by contains budget
+                if _contains_budget is not None:
+                    non_matching = [
+                        v for v in available if not self._matches_schema(v, contains)
+                    ]
+                    matching = [
+                        v for v in available if self._matches_schema(v, contains)
+                    ]
+                    # Take non-matching first, then fill with matching up to budget
+                    budget = max(_contains_budget, 0)
+                    take_matching = min(
+                        max(remaining_count - len(non_matching), 0),
+                        budget,
+                        len(matching),
+                    )
+                    pool = non_matching + matching[:take_matching]
+                    take = min(remaining_count, len(pool))
+                    remaining = self.generator.random_sample(pool, length=take)
                 else:
-                    remaining.append(item)
-                if len(remaining) >= actual_count:
-                    break
+                    take = min(remaining_count, len(available))
+                    remaining = self.generator.random_sample(available, length=take)
+            else:
 
-            if not unique_items:
-                if len(duplicates) < dup_count and remaining:
-                    diff = dup_count - len(duplicates)
-                    top_up = self.generator.random_sample(remaining, length=diff)
-                    duplicates.extend(top_up)
-                remaining.extend(duplicates)
-                shuffle(remaining)
+                def _gen_from_schema():
+                    return self.descend_into(self._from_schema)(remaining_schema)
 
-            generated.extend(remaining)
+                remaining = self._generate_remaining_items(
+                    generate_item=_gen_from_schema,
+                    count=remaining_count,
+                    unique_items=unique_items,
+                    existing=generated + contains_items,
+                    accept_item=_accept_item,
+                    contains=contains,
+                    contains_budget=_contains_budget,
+                    retry_factor=3,
+                )
+
         elif remaining_count > 0 and remaining_schema is None and not prefix_items:
             # No schema: generate random items
-            dup_count = 0
-            actual_count = remaining_count
-            if not unique_items and actual_count > 1:
-                dup_count = self.generator.random_int(0, actual_count // 2)
-                actual_count -= dup_count
-
-            remaining = []
-            duplicates = []
-            for _ in range(actual_count):
+            def _gen_random_type():
                 type_, _ = self._random_type_method()
-                item_schema = {"type": type_.value}
-                item = self.descend_into(self._from_schema)(item_schema)
-                if unique_items and (item in generated or item in remaining):
-                    if not unique_items and len(duplicates) < dup_count:
-                        duplicates.append(item)
-                else:
-                    remaining.append(item)
+                return self.descend_into(self._from_schema)({"type": type_.value})
 
-            if not unique_items:
-                if len(duplicates) < dup_count and remaining:
-                    diff = dup_count - len(duplicates)
-                    top_up = self.generator.random_sample(remaining, length=diff)
-                    duplicates.extend(top_up)
-                remaining.extend(duplicates)
-                shuffle(remaining)
+            remaining = self._generate_remaining_items(
+                generate_item=_gen_random_type,
+                count=remaining_count,
+                unique_items=unique_items,
+                existing=generated + contains_items,
+                accept_item=_accept_item,
+                contains=contains,
+                contains_budget=_contains_budget,
+                retry_factor=1,
+            )
 
-            generated.extend(remaining)
+        # Combine: shuffle non-prefix items together so contains items
+        # are distributed throughout the array rather than clustered
+        non_prefix = contains_items + remaining
+        shuffle(non_prefix)
+        generated.extend(non_prefix)
 
         # Handle unevaluatedItems: apply to positions not covered by
         # prefixItems, items, or contains
@@ -1432,49 +1776,6 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                     generated[i] = self.descend_into(self._from_schema)(
                         unevaluated_items
                     )
-
-        # Handle contains: ensure the array has items matching the contains schema
-        if contains is not None:
-            effective_min_contains = min_contains if min_contains is not None else 1
-            effective_max_contains = max_contains
-
-            # Count how many already match
-            matching_count = 0
-            for item in generated:
-                try:
-                    validate(item, contains)
-                    matching_count += 1
-                except ValidationError:
-                    pass
-
-            # Add items to satisfy minContains
-            while matching_count < effective_min_contains:
-                if max_items is not None and len(generated) >= max_items:
-                    break
-                item = self.descend_into(self._from_schema)(contains)
-                generated.append(item)
-                matching_count += 1
-
-            # Remove excess matches to satisfy maxContains
-            if (
-                effective_max_contains is not None
-                and matching_count > effective_max_contains
-            ):
-                excess = matching_count - effective_max_contains
-                # Replace some matching items with non-matching ones
-                for i in range(len(generated) - 1, -1, -1):
-                    if excess <= 0:
-                        break
-                    try:
-                        validate(generated[i], contains)
-                    except ValidationError:
-                        continue
-                    # Replace with a random item that doesn't match
-                    if remaining_schema is not None:
-                        generated[i] = self.descend_into(self._from_schema)(
-                            remaining_schema
-                        )
-                        excess -= 1
 
         return generated
 
@@ -1732,9 +2033,26 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 "Boolean schema 'false' rejects all instances."
             )
 
+        _pushed_ref = None
+
         # Handle $ref resolution
         if "$ref" in schema:
-            schema = self._resolve_ref(schema)
+            ref = schema["$ref"]
+            self.context._ref_stack.append(ref)
+            _pushed_ref = ref
+            try:
+                schema = self._resolve_ref(schema)
+            except UnsatisfiableConstraintsError:
+                self.context._ref_stack.pop()
+                raise
+
+        try:
+            return self.__from_schema_inner(schema)
+        finally:
+            if _pushed_ref is not None:
+                self.context._ref_stack.pop()
+
+    def __from_schema_inner(self, schema: SchemaT):
 
         # Handle const (draft-06+)
         if "const" in schema:
@@ -1799,6 +2117,12 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         the schema.  When not satisfied and ``else`` is present, merge
         ``else`` constraints instead.  The ``if``, ``then``, and ``else``
         keys are stripped from the returned schema.
+
+        Merging uses :func:`_merge_schemas` (the same logic as ``allOf``)
+        when both sides share a ``type``, giving proper constraint
+        intersection (``max(minimum)``, ``min(maximum)``, deep property
+        merge, etc.).  Falls back to shallow key-level merge when the
+        base schema has no ``type``.
         """
         result = {k: v for k, v in schema.items() if k not in ("if", "then", "else")}
         then_schema = schema.get("then", {})
@@ -1808,22 +2132,46 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         satisfy_if = self.generator.random_int(0, 1)
 
         branch = then_schema if satisfy_if else else_schema
-        if branch:
-            # merge branch constraints into the base schema
-            for key, val in branch.items():
-                if key in result:
-                    existing = result[key]
-                    if isinstance(existing, dict) and isinstance(val, dict):
-                        existing_copy = existing.copy()
-                        existing_copy.update(val)
-                        result[key] = existing_copy
-                    elif isinstance(existing, list) and isinstance(val, list):
-                        result[key] = list(set(existing) | set(val))
-                    else:
-                        result[key] = val
+        if not branch:
+            return result
+
+        base_type = result.get("type")
+        if base_type is not None and not isinstance(base_type, list):
+            # Propagate type into the branch so _merge_schemas can match.
+            branch_with_type = {"type": base_type, **branch}
+            try:
+                result = _merge_schemas(result, branch_with_type)
+            except (UnsatisfiableConstraintsError, KeyError, AssertionError):
+                # Fall through to shallow merge if something goes wrong
+                # (e.g., incompatible constraints — generate anyway and
+                # let the caller deal with the result).
+                result = self._shallow_merge_branch(result, branch)
+        else:
+            result = self._shallow_merge_branch(result, branch)
+
+        return result
+
+    @staticmethod
+    def _shallow_merge_branch(base: SchemaT, branch: SchemaT) -> SchemaT:
+        """Merge *branch* into *base* with shallow dict/list handling.
+
+        Used as a fallback when :func:`_merge_schemas` cannot be applied
+        (e.g., no ``type`` on the base schema).
+        """
+        result = dict(base)
+        for key, val in branch.items():
+            if key in result:
+                existing = result[key]
+                if isinstance(existing, dict) and isinstance(val, dict):
+                    existing_copy = existing.copy()
+                    existing_copy.update(val)
+                    result[key] = existing_copy
+                elif isinstance(existing, list) and isinstance(val, list):
+                    result[key] = list(set(existing) | set(val))
                 else:
                     result[key] = val
-
+            else:
+                result[key] = val
         return result
 
     def _resolve_ref(self, schema: SchemaT) -> SchemaT:
@@ -1834,6 +2182,10 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         ``Context``.  Any keys in *schema* alongside ``$ref`` are merged into
         the resolved schema (per draft 2019-09+, keywords may appear next to
         ``$ref``).
+
+        Circular references are detected via a ref stack on the context.
+        When a circular ref is detected at or beyond max_depth, an
+        UnsatisfiableConstraintsError is raised instead of recursing.
         """
         ref = schema["$ref"]
         root = self.context._root_schema
@@ -1841,6 +2193,18 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             raise UnsatisfiableConstraintsError(
                 f"Cannot resolve $ref {ref!r}: no root schema available."
             )
+
+        # Detect circular $ref: if we've already seen this ref in the
+        # current resolution chain AND we're well beyond max_depth,
+        # stop to prevent infinite recursion.  We use a generous limit
+        # (3x max_depth) because optional circular refs legitimately
+        # recurse a few times before depth limiting kicks in.
+        if ref in self.context._ref_stack:
+            if self.context._depth >= self.context.max_depth * 3:
+                raise UnsatisfiableConstraintsError(
+                    f"Circular $ref {ref!r} detected at depth "
+                    f"{self.context._depth} (max_depth={self.context.max_depth})."
+                )
 
         resolved = None
         if ref.startswith("#/"):
@@ -1885,7 +2249,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         return self._context
 
     @context.setter
-    def _(self, context: Context):
+    def context(self, context: Context):
         self._context = context
 
     def from_schema(self, schema: SchemaT, **context):

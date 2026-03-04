@@ -8,7 +8,6 @@ requires-python = ">=3.11"
 dependencies = [
     "faker>=37.0.0",
     "hypothesis>=6.0.0",
-    "inject>=5.2.0",
     "jsonschema>=4.0.0",
     "pytz>=2024.1",
     "wrapt>=1.16.0",
@@ -37,8 +36,24 @@ docs = [
 target-version = "py311"
 line-length = 88
 
-[tool.basedpyright]
-typeCheckingMode = "off"
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+# SchemaT = Dict[str, JsonT] is intentionally loose — JSON Schema values are
+# dynamically typed.  The rules below fire on almost every schema dict access
+# and are not fixable without a large TypedDict refactor.
+reportIndexIssue = false
+reportOperatorIssue = false
+reportAttributeAccessIssue = false
+reportOptionalOperand = false
+reportOptionalMemberAccess = false
+reportOptionalSubscript = false
+reportOptionalIterable = false
+reportGeneralTypeIssues = false
+reportArgumentType = false
+reportReturnType = false
+reportAssignmentType = false
+reportCallIssue = false
 
 [build-system]
 requires = ["hatchling>=1.26.0"]
