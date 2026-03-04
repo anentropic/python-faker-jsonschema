@@ -1,7 +1,7 @@
 import math
 from decimal import Decimal
 
-from typing_extensions import Final
+from typing import Final
 
 
 def _validate_numeric(op, other):

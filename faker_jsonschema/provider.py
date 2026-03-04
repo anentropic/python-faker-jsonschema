@@ -15,6 +15,7 @@ from random import shuffle
 from typing import (
     Callable,
     Dict,
+    Final,
     FrozenSet,
     Iterable,
     List,
@@ -28,11 +29,9 @@ import js_regex
 import pytz
 from jsonschema import validate, ValidationError
 from faker.providers import BaseProvider
-from hypothesis import strategies as st
-from typing_extensions import Final
+from hypothesis import find, settings, strategies as st
+from hypothesis.errors import NoSuchExample
 from wrapt import ObjectProxy
-
-from .utils import intinf
 
 """
 TODO: rename as OpenAPI
@@ -63,7 +62,7 @@ class NoExampleFoundError(Exception):
     pass
 
 
-class UnsatisfiableConstraintsError(Exception):
+class UnsatisfiableConstraintsError(ValueError):
     pass
 
 
@@ -147,32 +146,24 @@ class StringFormat:
                 assert self.lengths.start >= 0
                 assert self.lengths.stop > 0
                 assert self.lengths.step > 0
-                if min_length > self.lengths.start:
-                    return False
-                # min_length is valid...
-                if max_length is None or max_length >= self.lengths.stop:
-                    return True
-                offset = self.lengths.start % self.lengths.step
-                nearest_to_min = (
-                    min_length
-                    + offset
-                    - (min_length % self.lengths.stop)
-                )
-                if self.lengths.stop is intinf:
-                    max_reachable = max_length
-                else:
-                    max_reachable = (
-                        self.lengths.stop
-                        + offset
-                        - (self.lengths.stop % self.lengths.step)
-                        - (self.lengths.step
-                            if self.lengths.stop in self.lengths
-                            else 0)
+                if self.length_type is not LengthType.VARIABLE_RANGE:
+                    return all(
+                        len_ >= min_length and (
+                            max_length is None or len_ <= max_length)
+                        for len_ in self.lengths
                     )
-                return (
-                    max_length >= nearest_to_min and
-                    max_length >= max_reachable
-                )
+                start = self.lengths.start
+                stop = self.lengths.stop
+                step = self.lengths.step
+                if min_length <= start:
+                    nearest_to_min = start
+                else:
+                    nearest_to_min = start + (((min_length - start + step - 1) // step) * step)
+                if nearest_to_min >= stop:
+                    return False
+                if max_length is not None and nearest_to_min > max_length:
+                    return False
+                return True
             else:
                 return all(
                     len_ >= min_length and (
@@ -322,7 +313,7 @@ TYPE_ATTR_MERGE_RESOLVERS = {
     TypeName.OBJECT: {
         "properties": _resolve_properties,
         "propertyNames": _merge_schemas,
-        "required": lambda l, r: list(set(l) | set(r)),
+        "required": lambda left, right: list(set(left) | set(right)),
         "additionalProperties": operator.or_,
         "minProperties": max,
         "maxProperties": min,
@@ -405,8 +396,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         "byte": StringFormat(
             length_type=LengthType.VARIABLE_RANGE,
             return_type=bytes,
-            # returned length is a multiple of 4
-            lengths=range(0, intinf, 4),
+            # returned length is a multiple of 4 (default maxLength is 255)
+            lengths=range(0, 256, 4),
         ),
         "binary": StringFormat(
             length_type=LengthType.VARIABLE_SINGULAR,
@@ -469,13 +460,24 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         Base64 values always have length which is a multiple of 4
         and the encoded value will be 4/3 * longer than the original.
         """
-        if max_length == 0:
-            # b64encode(b'') == b''
+        valid_encoded_lengths = [
+            length for length in range(min_length, max_length + 1) if length % 4 == 0
+        ]
+        if not valid_encoded_lengths:
+            raise UnsatisfiableConstraintsError(
+                f"Constraints minLength: {min_length}, maxLength: "
+                f"{max_length} are incompatible with format: byte."
+            )
+
+        encoded_length = self.generator.random_element(valid_encoded_lengths)
+        if encoded_length == 0:
             return b""
-        original = self.generator.pystr(
-            min_chars=min_length, max_chars=max_length
-        )
-        return b64encode(original.encode())
+
+        chunk_count = encoded_length // 4
+        min_raw_length = max(1, (chunk_count * 3) - 2)
+        max_raw_length = chunk_count * 3
+        raw_length = self._safe_random_int(min_raw_length, max_raw_length + 1)
+        return b64encode(self.generator.binary(length=raw_length))
 
     def _format_binary(self, length: int) -> bytes:
         return self.generator.binary(length=length)
@@ -595,10 +597,17 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             _js_pattern = js_regex.compile(pattern)
             regex_st = st.from_regex(_js_pattern)
             try:
-                # TODO suppress warning from Hypothesis
-                return search(regex_st.example)
-            except NoExampleFoundError as e:
-                raise NoExampleFoundError(
+                return find(
+                    regex_st,
+                    is_valid,
+                    settings=settings(
+                        max_examples=self._context.max_search,
+                        database=None,
+                        deadline=None,
+                    ),
+                )
+            except NoSuchExample as e:
+                raise UnsatisfiableConstraintsError(
                     f"Unable to generate any random value that matches "
                     f"pattern: /{pattern}/ and minLength: {min_length}, "
                     f"maxLength: {max_length} after {self._context.max_search} attempts."
