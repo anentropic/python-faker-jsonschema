@@ -1,3 +1,6 @@
+default:
+    @just --list
+
 pypi:
     uv build
     uv publish
