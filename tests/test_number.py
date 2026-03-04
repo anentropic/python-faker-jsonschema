@@ -11,7 +11,7 @@ from faker_jsonschema.provider import UnsatisfiableConstraintsError
     itertools.product(
         (None, 0, -10.99999, -10.00001, 10.00001, 10.99999, -10, 10, 9999),
         (None, 0, -10.99999, -10.00001, 10.00001, 10.99999, -10, 10, 9999),
-    ),
+    )
 )
 def test_better_pyfloat(faker, min_value, max_value):
     if None not in (min_value, max_value) and min_value > max_value:
@@ -38,9 +38,12 @@ def test_jsonschema_number_invalid_multiple(faker):
 
 
 @pytest.mark.parametrize(
-    "exclusive_min,exclusive_max", itertools.product(*[[True, False]] * 2)
+    "exclusive_min,exclusive_max",
+    itertools.product(*[[True, False]]*2)
 )
-def test_jsonschema_number_invalid_exclusive_range(faker, exclusive_min, exclusive_max):
+def test_jsonschema_number_invalid_exclusive_range(
+    faker, exclusive_min, exclusive_max
+):
     if True in (exclusive_min, exclusive_max):
         with pytest.raises(UnsatisfiableConstraintsError):
             faker.jsonschema_number(
@@ -68,7 +71,7 @@ def test_jsonschema_number_invalid_exclusive_range(faker, exclusive_min, exclusi
         (10.00000000001,),
         (True, False),
         (True, False),
-    ),
+    )
 )
 def test_jsonschema_number_exclusive_range(
     faker, minimum, maximum, exclusive_min, exclusive_max
@@ -96,11 +99,11 @@ def test_jsonschema_number_exclusive_range(
         (None, 0, -10.99999, -10.00001, 10, 10.00001, 10.99999, -13, 13, 9999),
         (None, 0, -10.99999, -10.00001, 10, 10.00001, 10.99999, -13, 13, 9999),
         (None, -10, -3, -2.5, -1.33, 1.33, 2.5, 3, 10),
-    ),
+    )
 )
 def test_jsonschema_number(faker, minimum, maximum, multiple_of):
     if None not in (minimum, maximum):
-        if minimum > maximum:
+        if (minimum > maximum):
             with pytest.raises(ValueError):
                 faker.jsonschema_number(
                     minimum=minimum,
@@ -135,7 +138,4 @@ def test_jsonschema_number(faker, minimum, maximum, multiple_of):
         assert result <= maximum
     if multiple_of is not None:
         assert Decimal(str(result)) % Decimal(str(multiple_of)) == 0, (
-            result,
-            multiple_of,
-            result % multiple_of,
-        )
+            result, multiple_of, result % multiple_of)
