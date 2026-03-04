@@ -24,7 +24,7 @@ repos:
     hooks:
       - id: basedpyright
         name: Type checking (basedpyright)
-        entry: uv run basedpyright
+        entry: uv run basedpyright faker_jsonschema
         language: system
         types: [python]
         pass_filenames: false
