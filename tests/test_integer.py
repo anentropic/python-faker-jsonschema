@@ -15,7 +15,8 @@ def test_jsonschema_integer_invalid_multiple(faker):
 
 
 @pytest.mark.parametrize(
-    "exclusive_min,exclusive_max", itertools.product(*[[True, False]] * 2)
+    "exclusive_min,exclusive_max",
+    itertools.product(*[[True, False]]*2)
 )
 def test_jsonschema_integer_invalid_exclusive_range(
     faker, exclusive_min, exclusive_max
@@ -47,7 +48,7 @@ def test_jsonschema_integer_invalid_exclusive_range(
         (12,),
         (True, False),
         (True, False),
-    ),
+    )
 )
 def test_jsonschema_integer_exclusive_range(
     faker, minimum, maximum, exclusive_min, exclusive_max
@@ -75,11 +76,11 @@ def test_jsonschema_integer_exclusive_range(
         (None, 0, -3, 3, 10, -13, 13, 9999),
         (None, 0, -3, 3, 10, -13, 13, 9999),
         (None, -10, -3, 3, 10),
-    ),
+    )
 )
 def test_jsonschema_integer(faker, minimum, maximum, multiple_of):
     if None not in (minimum, maximum):
-        if minimum > maximum:
+        if (minimum > maximum):
             with pytest.raises(ValueError):
                 faker.jsonschema_integer(
                     minimum=minimum,
@@ -113,4 +114,5 @@ def test_jsonschema_integer(faker, minimum, maximum, multiple_of):
     if maximum is not None:
         assert result <= maximum
     if multiple_of is not None:
-        assert result % multiple_of == 0, (result, multiple_of, result % multiple_of)
+        assert result % multiple_of == 0, (
+            result, multiple_of, result % multiple_of)
