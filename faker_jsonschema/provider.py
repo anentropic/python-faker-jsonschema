@@ -590,6 +590,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         if pattern is not None:
             # (returns early)
             # NOTE: `format` is ignored if `pattern` is given
+            # TODO: js_regex.compile returns a compiled regex that is usable but
+            # has `pattern` attribute set to None which hypothesis doesn't like
             _js_pattern = js_regex.compile(pattern)
             regex_st = st.from_regex(_js_pattern)
             try:
@@ -824,13 +826,13 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                     assert maximum is not None
                     safe_min = safe_max - self.generator.random_int()
 
-            for i in range(100):
+            for _ in range(100):
                 set_missing()
                 if valid_range():
                     break
             else:
                 raise StopIteration(
-                    f"Could not find a valid minimum and maximum in 100 iterations",
+                    "Could not find a valid minimum and maximum in 100 iterations",
                     minimum,
                     maximum,
                 )
