@@ -843,7 +843,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
                         example = regex_st.example()
-                except Exception:
+                except Exception:  # noqa: BLE001 — Hypothesis .example() can raise many internal errors
                     break
                 if is_valid(example):
                     return example
@@ -1894,7 +1894,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 _name_schema = {"type": "string", "pattern": pattern}
                 try:
                     key = self.descend_into(self._from_schema)(_name_schema)
-                except Exception:
+                except UnsatisfiableConstraintsError:
                     continue
                 if key not in generated:
                     val = self.descend_into(self._from_schema)(pschema)
@@ -2145,7 +2145,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             branch_with_type = {"type": base_type, **branch}
             try:
                 result = _merge_schemas(result, branch_with_type)
-            except (UnsatisfiableConstraintsError, KeyError, AssertionError):
+            except (UnsatisfiableConstraintsError, KeyError):
                 # Fall through to shallow merge if something goes wrong
                 # (e.g., incompatible constraints — generate anyway and
                 # let the caller deal with the result).
