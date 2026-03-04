@@ -1,14 +1,11 @@
 default:
     @just --list
 
-pypi:
-    uv build
-    uv publish
-    just tag
+build:
+    uv run mkdocs build --strict
 
-tag:
-    git tag "$(python -c "from faker_jsonschema import __version__; print(__version__)")"
-    git push --tags
+serve port="8000":
+    uv run mkdocs serve --dev-addr 127.0.0.1:{{port}} --livereload
 
 shell:
     PYTHONPATH=faker_jsonschema:tests:$PYTHONPATH uv run ipython

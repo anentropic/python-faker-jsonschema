@@ -14,6 +14,11 @@ dependencies = [
     "wrapt>=1.16.0",
 ]
 
+[project.urls]
+Homepage = "https://anentropic.github.io/python-faker-jsonschema/"
+Documentation = "https://anentropic.github.io/python-faker-jsonschema/"
+Source = "https://github.com/anentropic/python-faker-jsonschema"
+
 [dependency-groups]
 dev = [
     "basedpyright>=1.38.2",
@@ -23,10 +28,17 @@ dev = [
     "pytest>=8.0.0",
     "ruff>=0.13.0",
 ]
+docs = [
+    "mkdocs>=1.6.0",
+    "mkdocs-material>=9.5.0,<9.7.0",
+]
 
 [tool.ruff]
 target-version = "py311"
 line-length = 88
+
+[tool.basedpyright]
+typeCheckingMode = "off"
 
 [build-system]
 requires = ["hatchling>=1.26.0"]
