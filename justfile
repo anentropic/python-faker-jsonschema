@@ -8,7 +8,7 @@ serve port="8000":
     uv run mkdocs serve --dev-addr 127.0.0.1:{{port}} --livereload
 
 shell:
-    PYTHONPATH=faker_jsonschema:tests:$PYTHONPATH uv run ipython
+    uv run ipython
 
 typecheck:
     uv run basedpyright
