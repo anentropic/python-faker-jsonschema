@@ -274,6 +274,46 @@ def _resolve_properties(
     return properties
 
 
+def _resolve_additional_properties(
+    left: Union[bool, SchemaT], right: Union[bool, SchemaT]
+) -> Union[bool, SchemaT]:
+    """Merge additionalProperties: False is strictest, schema beats True."""
+    if left is False or right is False:
+        return False
+    if isinstance(left, dict) and isinstance(right, dict):
+        return _merge_schemas(left, right)
+    if isinstance(left, dict):
+        return left
+    if isinstance(right, dict):
+        return right
+    # both are True
+    return True
+
+
+def _resolve_dependent_required(
+    left: Dict[str, List[str]], right: Dict[str, List[str]]
+) -> Dict[str, List[str]]:
+    merged = left.copy()
+    for key, deps in right.items():
+        if key in merged:
+            merged[key] = list(set(merged[key]) | set(deps))
+        else:
+            merged[key] = deps
+    return merged
+
+
+def _resolve_dependent_schemas(
+    left: Dict[str, SchemaT], right: Dict[str, SchemaT]
+) -> Dict[str, SchemaT]:
+    merged = left.copy()
+    for key, schema in right.items():
+        if key in merged:
+            merged[key] = _merge_schemas(merged[key], schema)
+        else:
+            merged[key] = schema
+    return merged
+
+
 def _merge_schemas(left: SchemaT, right: SchemaT) -> SchemaT:
     assert left["type"] == right["type"]
     type_ = TypeName(left["type"])
@@ -312,11 +352,15 @@ TYPE_ATTR_MERGE_RESOLVERS = {
     },
     TypeName.OBJECT: {
         "properties": _resolve_properties,
+        "patternProperties": _resolve_properties,
         "propertyNames": _merge_schemas,
         "required": lambda left, right: list(set(left) | set(right)),
-        "additionalProperties": operator.or_,
+        "additionalProperties": _resolve_additional_properties,
         "minProperties": max,
         "maxProperties": min,
+        "dependentRequired": _resolve_dependent_required,
+        "dependentSchemas": _resolve_dependent_schemas,
+        "unevaluatedProperties": _resolve_additional_properties,
     },
     TypeName.NUMBER: _numeric_attr_merge_funcs,
     TypeName.INTEGER: _numeric_attr_merge_funcs,
@@ -581,7 +625,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         T = TypeVar("T")
 
         def search(generator: Callable[..., T]) -> T:
-            for _ in range(self._context.max_search):
+            for _ in range(self.context.max_search):
                 example = generator()
                 if is_valid(example):
                     break
@@ -602,7 +646,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 regex_st = regex_st.filter(lambda s: len(s) <= max_length)
             if min_length > 0:
                 regex_st = regex_st.filter(lambda s: len(s) >= min_length)
-            for _ in range(self._context.max_search):
+            for _ in range(self.context.max_search):
                 try:
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
@@ -614,7 +658,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             raise UnsatisfiableConstraintsError(
                 f"Unable to generate any random value that matches "
                 f"pattern: /{pattern}/ and minLength: {min_length}, "
-                f"maxLength: {max_length} after {self._context.max_search} attempts."
+                f"maxLength: {max_length} after {self.context.max_search} attempts."
             )
         elif format_ is not None:
             # (returns early)
@@ -633,7 +677,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                         raise UnsatisfiableConstraintsError(
                             f"Unable to generate any random value that matches "
                             f"format: {format_} and minLength: {min_length}, "
-                            f"maxLength: {max_length} after {self._context.max_search} attempts."
+                            f"maxLength: {max_length} after {self.context.max_search} attempts."
                         ) from e
             else:
                 if not format_type.validate_constraints(min_length, max_length):
@@ -663,7 +707,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                         raise UnsatisfiableConstraintsError(
                             f"Unable to generate any random value that matches "
                             f"format: {format_} and minLength: {min_length}, "
-                            f"maxLength: {max_length} after {self._context.max_search} attempts."
+                            f"maxLength: {max_length} after {self.context.max_search} attempts."
                         ) from e
 
         if max_length is None or (max_length and max_length > 20):
@@ -916,9 +960,12 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         Randomly combine one or more of the given schemas of that type
         according to the rules for `allOf`.
         """
-        schema_map = dict(
-            itertools.groupby(sorted(schemas, key=type_getter), type_getter)
-        )
+        schema_map = {
+            k: list(v)
+            for k, v in itertools.groupby(
+                sorted(schemas, key=type_getter), type_getter
+            )
+        }
         type_ = self.generator.random_element(schema_map.keys())
         type_schemas = schema_map[type_]
         sub_schemas = self.generator.random_sample(type_schemas, length=None)
@@ -938,9 +985,12 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         If they are all the same type we should AND their validation
         restrictions together and return for that.
         """
-        schema_map = dict(
-            itertools.groupby(sorted(schemas, key=type_getter), type_getter)
-        )
+        schema_map = {
+            k: list(v)
+            for k, v in itertools.groupby(
+                sorted(schemas, key=type_getter), type_getter
+            )
+        }
         if len(schema_map) > 1:
             raise UnsatisfiableConstraintsError(
                 f"Cannot satisfy allOf multiple types: {set(schema_map.keys())}"
@@ -990,7 +1040,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         T = TypeVar("T")
 
         def search(generator: Callable[..., T]) -> T:
-            for _ in range(self._context.max_search):
+            for _ in range(self.context.max_search):
                 example = generator()
                 if not is_valid(example):
                     # we found a usable example
@@ -1007,7 +1057,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             except NoExampleFoundError as e:
                 raise NoExampleFoundError(
                     f"Unable to generate any random value that matches "
-                    f"not: /{schema}/ after {self._context.max_search} attempts."
+                    f"not: /{schema}/ after {self.context.max_search} attempts."
                 ) from e
         else:
             return generator()
@@ -1081,16 +1131,22 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
     def jsonschema_object(
         self,
         properties: Optional[Dict[str, SchemaT]] = None,
+        pattern_properties: Optional[Dict[str, SchemaT]] = None,
         property_names: Optional[SchemaT] = None,
         required: Optional[List[str]] = None,
-        additional_properties: bool = True,
+        additional_properties: Union[bool, SchemaT] = True,
+        unevaluated_properties: Union[bool, SchemaT, None] = None,
         min_properties: int = 0,
         max_properties: Optional[int] = None,
+        dependent_required: Optional[Dict[str, List[str]]] = None,
+        dependent_schemas: Optional[Dict[str, SchemaT]] = None,
     ) -> Dict[str, JsonT]:
         """
-        TODO:
-        more advanced validation rules in JSONSchema:
-        https://json-schema.org/understanding-json-schema/reference/object.html#dependencies
+        Generate fake data conforming to a JSON Schema object type.
+
+        Supports: properties, patternProperties, propertyNames, required,
+        additionalProperties (bool or schema), unevaluatedProperties,
+        minProperties, maxProperties, dependentRequired, dependentSchemas.
 
         TODO: readOnly / writeOnly
         """
@@ -1102,23 +1158,6 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         ):
             raise ValueError("maxProperties must be >= minProperties")
         if (
-            required is not None and
-            min_properties > len(required)
-        ):
-            raise UnsatisfiableConstraintsError(
-                f"Cannot satisfy minProperties: {min_properties} when "
-                f"there are {len(required)} properties in required list."
-            )
-        if (
-            not additional_properties and
-            min_properties > len(properties or {})
-        ):
-            raise UnsatisfiableConstraintsError(
-                f"Cannot satisfy minProperties: {min_properties} when "
-                f"there are {len(properties or {})} properties in schema and "
-                f"additionalProperties is False."
-            )
-        if (
             max_properties is not None and
             required is not None and
             max_properties < len(required)
@@ -1127,54 +1166,103 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 f"Cannot satisfy maxProperties: {max_properties} when "
                 f"there are {len(required)} properties in required list."
             )
+        _allows_additional = additional_properties is not False
+        if not _allows_additional:
+            _available = len(properties or {})
+            if pattern_properties:
+                # each pattern can contribute at least one property
+                _available += len(pattern_properties)
+            if min_properties > _available:
+                raise UnsatisfiableConstraintsError(
+                    f"Cannot satisfy minProperties: {min_properties} when "
+                    f"there are {_available} properties in schema and "
+                    f"additionalProperties is False."
+                )
 
         og_max_properties = max_properties
         properties = properties or {}
-        required = set(required or [])
+        pattern_properties = pattern_properties or {}
+        required_set = set(required or [])
         generated = {}
+
+        def _schema_for_key(attr: str) -> SchemaT:
+            """Determine the schema for a property key.
+
+            Checks properties, then patternProperties, then
+            additionalProperties (if schema), else empty schema.
+            """
+            if attr in properties:
+                return properties[attr]
+            for pattern, pschema in pattern_properties.items():
+                if re.search(pattern, attr):
+                    return pschema
+            if isinstance(additional_properties, dict):
+                return additional_properties
+            return {}
 
         def generate_values(attrs: Iterable[str]) -> None:
             for attr in attrs:
-                # NOTE: we use the 'any' schema if not found
-                schema = properties.get(attr, {})
+                schema = _schema_for_key(attr)
                 val = self.descend_into(self._from_schema)(schema)
                 generated[attr] = val
 
         # generate 'required' properties
-        if required:
-            generate_values(required)
+        if required_set:
+            generate_values(required_set)
 
         if max_properties is None:
             max_properties = self._get_collection_max(
-                max(min_properties, len(required))
+                max(min_properties, len(required_set))
             )
 
-        # generate random number of 'non-required' properties
-        # (but NOT `additionalProperties`)
-        assert len(generated) <= max_properties
-        min_needed = 0
-        _diff = min_properties - len(generated)
-        if _diff > 0:
-            min_needed = _diff
-        _max_gen = min(len(properties), max_properties) - len(generated)
-        if _max_gen > min_needed:
-            _count = self.generator.random_int(min_needed, _max_gen)
-            non_required_attrs = properties.keys() - required
-            if non_required_attrs:
-                sampled_non_required = self.generator.random_sample(
-                    tuple(properties.keys() - required),
-                    length=_count,
+        # generate random number of 'non-required' declared properties
+        if len(generated) <= max_properties:
+            min_needed = max(0, min_properties - len(generated))
+            _max_gen = min(len(properties), max_properties) - len(generated)
+            if _max_gen > min_needed:
+                _count = self.generator.random_int(min_needed, _max_gen)
+                non_required_attrs = properties.keys() - required_set
+                if non_required_attrs:
+                    sampled_non_required = self.generator.random_sample(
+                        tuple(non_required_attrs),
+                        length=_count,
+                    )
+                    generate_values(sampled_non_required)
+                    min_needed = max(0, min_needed - len(sampled_non_required))
+
+        # generate patternProperties entries
+        if pattern_properties and len(generated) < max_properties:
+            min_needed = max(0, min_properties - len(generated))
+            for pattern, pschema in pattern_properties.items():
+                if len(generated) >= max_properties:
+                    break
+                # check if any already-generated key matches this pattern
+                already_matched = any(
+                    re.search(pattern, k) for k in generated
                 )
-                generate_values(sampled_non_required)
-                min_needed -= _count
+                if already_matched and min_needed <= 0:
+                    continue
+                # generate a key name matching the pattern
+                _name_schema = {"type": "string", "pattern": pattern}
+                try:
+                    key = self.descend_into(self._from_schema)(_name_schema)
+                except Exception:
+                    continue
+                if key not in generated:
+                    val = self.descend_into(self._from_schema)(pschema)
+                    generated[key] = val
+                    min_needed = max(0, min_needed - 1)
 
         # generate 'additional' (not in schema) properties?
+        min_needed = max(0, min_properties - len(generated))
         if (
-            additional_properties and
+            _allows_additional and
+            len(generated) < max_properties and
             (min_needed > 0 or self.generator.random_int(0, 1))
         ):
+            _remaining = max_properties - len(generated)
             _count = self.generator.random_int(
-                min_needed, max_properties - len(generated)
+                min(min_needed, _remaining), _remaining
             )
             if og_max_properties is None:
                 # lots of additional_properties just feels weird
@@ -1185,9 +1273,9 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             # generate random property names
             if property_names is None:
                 property_names = self.context.default_property_schema
-            _schema = {"type": "string"}
-            _schema.update(property_names)
-            method = partial(self._from_schema, schema=_schema)
+            _name_schema = {"type": "string"}
+            _name_schema.update(property_names)
+            method = partial(self._from_schema, schema=_name_schema)
             # generate unique names to avoid dict key collisions
             generated_names: list[str] = []
             existing_keys = set(generated.keys())
@@ -1198,7 +1286,77 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                     existing_keys.add(name)
                 if len(generated_names) >= _count:
                     break
-            generate_values(generated_names)
+
+            # generate values — use additionalProperties schema if provided
+            _val_schema = (
+                additional_properties
+                if isinstance(additional_properties, dict)
+                else {}
+            )
+            for name in generated_names:
+                generated[name] = self.descend_into(self._from_schema)(
+                    _val_schema
+                )
+
+        # enforce dependentRequired: if a trigger key is present,
+        # all its dependent keys must also be present
+        if dependent_required:
+            for trigger, deps in dependent_required.items():
+                if trigger in generated:
+                    for dep in deps:
+                        if dep not in generated:
+                            schema = _schema_for_key(dep)
+                            generated[dep] = self.descend_into(
+                                self._from_schema
+                            )(schema)
+
+        # enforce dependentSchemas: if a trigger key is present,
+        # merge the dependent schema constraints into the result
+        if dependent_schemas:
+            for trigger, dep_schema in dependent_schemas.items():
+                if trigger in generated:
+                    # dependent schema is an object schema — generate any
+                    # required properties and merge into result
+                    dep_required = dep_schema.get("required", [])
+                    dep_props = dep_schema.get("properties", {})
+                    for dep_key in dep_required:
+                        if dep_key not in generated:
+                            sub = dep_props.get(dep_key, {})
+                            generated[dep_key] = self.descend_into(
+                                self._from_schema
+                            )(sub)
+                        elif dep_key in dep_props:
+                            # re-generate to match the dependent schema
+                            sub = dep_props[dep_key]
+                            generated[dep_key] = self.descend_into(
+                                self._from_schema
+                            )(sub)
+
+        # enforce unevaluatedProperties
+        if unevaluated_properties is not None:
+            evaluated_keys = set(properties.keys())
+            for pattern in pattern_properties:
+                for k in list(generated.keys()):
+                    if re.search(pattern, k):
+                        evaluated_keys.add(k)
+            # keys from dependentSchemas also count as evaluated
+            if dependent_schemas:
+                for trigger, dep_schema in dependent_schemas.items():
+                    if trigger in generated:
+                        for k in dep_schema.get("properties", {}):
+                            evaluated_keys.add(k)
+
+            unevaluated = set(generated.keys()) - evaluated_keys
+            if unevaluated_properties is False:
+                # remove unevaluated properties
+                for k in unevaluated:
+                    del generated[k]
+            elif isinstance(unevaluated_properties, dict):
+                # re-generate unevaluated values to match the schema
+                for k in unevaluated:
+                    generated[k] = self.descend_into(self._from_schema)(
+                        unevaluated_properties
+                    )
 
         return generated
 
@@ -1231,6 +1389,10 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         All recursive calls should use this private method instead of the
         public `from_schema` below so that `context._depth` is not reset.
         """
+        # Handle if/then/else: randomly choose a branch and merge it
+        if "if" in schema:
+            schema = self._apply_if_then_else(schema)
+
         try:
             type_ = TypeName(schema["type"])
         except KeyError:
@@ -1243,6 +1405,45 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 return self._jsonschema_any_from_schema(schema)
         else:
             return self._jsonschema_basic_type_from_schema(schema, type_)
+
+    def _apply_if_then_else(self, schema: SchemaT) -> SchemaT:
+        """Apply if/then/else by randomly choosing a branch.
+
+        Randomly decide whether to satisfy the ``if`` condition.  When
+        satisfied and ``then`` is present, merge ``then`` constraints into
+        the schema.  When not satisfied and ``else`` is present, merge
+        ``else`` constraints instead.  The ``if``, ``then``, and ``else``
+        keys are stripped from the returned schema.
+        """
+        result = {
+            k: v for k, v in schema.items()
+            if k not in ("if", "then", "else")
+        }
+        if_schema = schema["if"]
+        then_schema = schema.get("then", {})
+        else_schema = schema.get("else", {})
+
+        # randomly choose to satisfy the if-condition or not
+        satisfy_if = self.generator.random_int(0, 1)
+
+        branch = then_schema if satisfy_if else else_schema
+        if branch:
+            # merge branch constraints into the base schema
+            for key, val in branch.items():
+                if key in result:
+                    existing = result[key]
+                    if isinstance(existing, dict) and isinstance(val, dict):
+                        existing_copy = existing.copy()
+                        existing_copy.update(val)
+                        result[key] = existing_copy
+                    elif isinstance(existing, list) and isinstance(val, list):
+                        result[key] = list(set(existing) | set(val))
+                    else:
+                        result[key] = val
+                else:
+                    result[key] = val
+
+        return result
 
     def descend_into(self, f):
         @wraps(f)
