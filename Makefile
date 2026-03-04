@@ -1,7 +1,8 @@
-.PHONY: pypi, tag, shell, typecheck, pytest, test
+.PHONY: pypi, tag, shell, typecheck, lint, format, pytest, test
 
 pypi:
-	poetry publish --build
+	uv build
+	uv publish
 	make tag
 
 tag:
@@ -9,14 +10,20 @@ tag:
 	git push --tags
 
 shell:
-	PYTHONPATH=faker_jsonschema:tests:$$PYTHONPATH ipython
+	uv run env PYTHONPATH=faker_jsonschema:tests:$$PYTHONPATH ipython
 
 typecheck:
-	pytype faker_jsonschema
+	uv run pytype faker_jsonschema
+
+lint:
+	uv run ruff check faker_jsonschema tests
+
+format:
+	uv run ruff format faker_jsonschema tests
 
 pytest:
-	py.test -v -s --pdb --pdbcls=IPython.terminal.debugger:TerminalPdb tests/
+	uv run pytest -v -s --pdb --pdbcls=IPython.terminal.debugger:TerminalPdb tests/
 
 test:
-	$(MAKE) typecheck
+	$(MAKE) lint
 	$(MAKE) pytest
