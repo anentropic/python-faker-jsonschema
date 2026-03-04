@@ -1,7 +1,14 @@
-# faker-jsonschema
+# python-faker-jsonschema
+Generate fake data matching a JSON Schema, using joke2k's Faker.
 
-Generate fake data matching a JSON Schema, using [joke2k's Faker](https://github.com/joke2k/faker).
+## Development
 
-For Python 3.
+This project now uses [uv](https://docs.astral.sh/uv/) for dependency and environment management.
+Python 3.11+ is required.
 
-See https://github.com/json-schema-faker/json-schema-faker/ for an equivalent in JS.
+```bash
+uv sync --group dev
+uv run pytest
+uv run ruff check .
+just test
+```
