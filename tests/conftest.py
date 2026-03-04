@@ -13,7 +13,7 @@ def faker(record_testsuite_property):
     # TODO if we made a plugin could we print this nicer?
     # https://docs.pytest.org/en/latest/writing_plugins.html#conftest-py-plugins
     record_testsuite_property("SEED", seed)
-    print("SEED={}  ".format(seed), end='')
+    print("SEED={}  ".format(seed), end="")
 
     Faker.seed(seed)
     fake = Faker()

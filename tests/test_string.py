@@ -18,11 +18,9 @@ from faker_jsonschema.provider import (
     itertools.product(
         (3, 5, 11),
         (None, 15, 20, 25),
-    )
+    ),
 )
-def test_jsonschema_string_length(
-    faker, repeats_for_slow, min_length, max_length
-):
+def test_jsonschema_string_length(faker, repeats_for_slow, min_length, max_length):
     for _ in range(repeats_for_slow):
         result = faker.jsonschema_string(
             min_length=min_length,
@@ -45,7 +43,7 @@ def test_jsonschema_string_length(
         ),
         (5, 11, 13),
         (None, 7, 12, 15),
-    )
+    ),
 )
 def test_jsonschema_pattern(
     faker,
@@ -111,8 +109,8 @@ def test_jsonschema_pattern(
         (
             "date_of_birth",
             "unix_time",
-        )
-    )
+        ),
+    ),
 )
 def test_jsonschema_format(faker, format_):
     format_type = JSONSchemaProvider.STRING_FORMATS.get(format_)
@@ -127,11 +125,9 @@ def test_jsonschema_format(faker, format_):
     itertools.product(
         (5, 11, 13),
         (None, 7, 12, 15),
-    )
+    ),
 )
-def test_jsonschema_format_min_max_length_fixed(
-    faker, min_length, max_length
-):
+def test_jsonschema_format_min_max_length_fixed(faker, min_length, max_length):
     format_ = "date"
     format_type = JSONSchemaProvider.STRING_FORMATS[format_]
     assert format_type.length_type == LengthType.FIXED
@@ -171,7 +167,7 @@ def test_jsonschema_format_min_max_length_fixed(
     itertools.product(
         (5, 11, 13),
         (None, 7, 12, 15),
-    )
+    ),
 )
 def test_jsonschema_format_min_max_length_variable_singular(
     faker, min_length, max_length
@@ -211,7 +207,6 @@ def test_jsonschema_format_min_max_length_variable_singular(
         (LengthType.FIXED, [10], 0, 9, False),
         (LengthType.FIXED, [10], 0, 10, True),
         (LengthType.FIXED, [10], 0, 11, True),
-
         (LengthType.FIXED, [10, 13], 0, None, True),
         (LengthType.FIXED, [10, 13], 9, None, True),
         (LengthType.FIXED, [10, 13], 10, None, True),
@@ -223,7 +218,6 @@ def test_jsonschema_format_min_max_length_variable_singular(
         (LengthType.FIXED, [10, 13], 9, 11, False),
         (LengthType.FIXED, [10, 13], 11, 12, False),
         (LengthType.FIXED, [10, 13], 13, 13, False),
-
         (LengthType.FIXED, range(10, 14), 0, None, True),
         (LengthType.FIXED, range(10, 14), 9, None, True),
         (LengthType.FIXED, range(10, 14), 10, None, True),
@@ -235,7 +229,6 @@ def test_jsonschema_format_min_max_length_variable_singular(
         (LengthType.FIXED, range(10, 14), 9, 11, False),
         (LengthType.FIXED, range(10, 14), 11, 12, False),
         (LengthType.FIXED, range(10, 14), 13, 13, False),
-
         (LengthType.FIXED, range(8, 18, 4), 0, None, True),
         (LengthType.FIXED, range(8, 18, 4), 8, None, True),
         (LengthType.FIXED, range(8, 18, 4), 9, None, False),
@@ -246,7 +239,6 @@ def test_jsonschema_format_min_max_length_variable_singular(
         (LengthType.FIXED, range(8, 18, 4), 8, 15, False),
         (LengthType.FIXED, range(8, 18, 4), 8, 16, True),
         (LengthType.FIXED, range(8, 18, 4), 9, 16, False),
-
         (LengthType.FIXED, range(9, 18, 4), 0, None, True),
         (LengthType.FIXED, range(9, 18, 4), 9, None, True),
         (LengthType.FIXED, range(9, 18, 4), 10, None, False),
@@ -257,14 +249,13 @@ def test_jsonschema_format_min_max_length_variable_singular(
         (LengthType.FIXED, range(9, 18, 4), 9, 16, False),
         (LengthType.FIXED, range(9, 18, 4), 9, 17, True),
         (LengthType.FIXED, range(9, 18, 4), 10, 17, False),
-
         (LengthType.VARIABLE_SINGULAR, None, 0, 0, True),
         (LengthType.VARIABLE_RANGE, None, 0, 0, True),
         (LengthType.UNCONSTRAINED, None, 0, 0, False),
         (LengthType.VARIABLE_SINGULAR, None, 0, 1, True),
         (LengthType.VARIABLE_RANGE, None, 0, 1, True),
         (LengthType.UNCONSTRAINED, None, 0, 1, True),
-    )
+    ),
 )
 def test_stringformat_validate_constraints(
     length_type, lengths, min_length, max_length, expected
@@ -279,11 +270,9 @@ def test_stringformat_validate_constraints(
     itertools.product(
         (5, 11, 13),
         (None, 7, 12, 15),
-    )
+    ),
 )
-def test_jsonschema_format_min_max_length_variable_range(
-    faker, min_length, max_length
-):
+def test_jsonschema_format_min_max_length_variable_range(faker, min_length, max_length):
     format_ = "byte"
     format_type = JSONSchemaProvider.STRING_FORMATS[format_]
     assert format_type.length_type == LengthType.VARIABLE_RANGE
@@ -326,7 +315,7 @@ def test_jsonschema_format_min_max_length_variable_range(
         (20, 30, True),
         (0, 5, False),  # too short
         (70, 100, False),  # too long
-    )
+    ),
 )
 def test_jsonschema_format_min_max_length_unconstrained(
     faker, min_length, max_length, expect_result

@@ -39,14 +39,12 @@ def properties():
 # ── Existing tests ───────────────────────────────────────────────────
 
 
-def test_jsonschema_object_properties(
-    faker, repeats_for_slow, properties
-):
+def test_jsonschema_object_properties(faker, repeats_for_slow, properties):
     for _ in range(repeats_for_slow):
         result = faker.jsonschema_object(
             properties=properties,
             required=list(properties.keys()),
-            additional_properties=False
+            additional_properties=False,
         )
         assert isinstance(result, dict)
         for key, val in result.items():
@@ -55,11 +53,7 @@ def test_jsonschema_object_properties(
 
 @pytest.mark.parametrize(
     "min_properties,max_properties,additional_properties",
-    itertools.product(
-        (0, 3, 5, 11),
-        (None, 15, 20, 25),
-        (True, False)
-    )
+    itertools.product((0, 3, 5, 11), (None, 15, 20, 25), (True, False)),
 )
 def test_jsonschema_object_length(
     faker, repeats_for_slow, min_properties, max_properties, additional_properties
@@ -102,14 +96,10 @@ def test_jsonschema_object_length(
     (
         list(comb)
         for i in range(1, 5)
-        for comb in itertools.combinations(
-            ["any", "str", "num", "petstore"], i
-        )
-    )
+        for comb in itertools.combinations(["any", "str", "num", "petstore"], i)
+    ),
 )
-def test_jsonschema_object_required(
-    faker, properties, required
-):
+def test_jsonschema_object_required(faker, properties, required):
     result = faker.jsonschema_object(
         properties=properties,
         required=required,
@@ -139,11 +129,9 @@ def test_jsonschema_object_required(
         {"pattern": "^\\w{3}\\d{2,4}$"},
         {"minLength": 3, "maxLength": 5},
         {"minLength": 13, "maxLength": 15},
-    )
+    ),
 )
-def test_jsonschema_object_property_names(
-    faker, property_names
-):
+def test_jsonschema_object_property_names(faker, property_names):
     result = faker.jsonschema_object(
         properties=None,
         property_names=property_names,
@@ -287,7 +275,9 @@ def test_jsonschema_object_additional_properties_schema(faker, repeats_for_slow)
         assert isinstance(result["name"], str)
         for key, val in result.items():
             if key != "name":
-                assert isinstance(val, int), f"Key {key!r} should be int, got {type(val)}"
+                assert isinstance(val, int), (
+                    f"Key {key!r} should be int, got {type(val)}"
+                )
         validate(result, schema)
 
 
@@ -308,16 +298,6 @@ def test_jsonschema_object_additional_properties_false_strict(faker, repeats_for
 
 def test_jsonschema_object_pattern_properties(faker, repeats_for_slow):
     """patternProperties → at least one key matching each pattern."""
-    schema = {
-        "type": "object",
-        "patternProperties": {
-            "^S_": {"type": "string"},
-            "^I_": {"type": "integer"},
-        },
-        "additionalProperties": False,
-        "minProperties": 2,
-        "maxProperties": 4,
-    }
     for _ in range(repeats_for_slow):
         result = faker.jsonschema_object(
             pattern_properties={
@@ -489,15 +469,9 @@ def test_jsonschema_object_if_then_else_via_from_schema(faker, repeats_for_slow)
             "country": {"type": "string"},
         },
         "required": ["street_address", "country"],
-        "if": {
-            "properties": {"country": {"const": "United States of America"}}
-        },
-        "then": {
-            "properties": {"postal_code": {"type": "string"}}
-        },
-        "else": {
-            "properties": {"postal_code": {"type": "string"}}
-        },
+        "if": {"properties": {"country": {"const": "United States of America"}}},
+        "then": {"properties": {"postal_code": {"type": "string"}}},
+        "else": {"properties": {"postal_code": {"type": "string"}}},
     }
     for _ in range(repeats_for_slow):
         result = faker.from_schema(schema)
@@ -631,7 +605,11 @@ def test_anyof_multiple_types_including_objects(faker, repeats_for_slow):
     """anyOf with mixed types (object + string) shouldn't crash (B4 regression)."""
     schema = {
         "anyOf": [
-            {"type": "object", "properties": {"x": {"type": "integer"}}, "required": ["x"]},
+            {
+                "type": "object",
+                "properties": {"x": {"type": "integer"}},
+                "required": ["x"],
+            },
             {"type": "string"},
         ]
     }

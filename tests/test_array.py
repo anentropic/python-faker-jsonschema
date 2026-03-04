@@ -30,11 +30,9 @@ from jsonschema import validate
                 },
             ]
         },
-    )
+    ),
 )
-def test_jsonschema_array_items(
-    faker, repeats_for_slow, schema
-):
+def test_jsonschema_array_items(faker, repeats_for_slow, schema):
     for _ in range(repeats_for_slow):
         result = faker.jsonschema_array(items=schema)
         assert isinstance(result, list)
@@ -44,11 +42,7 @@ def test_jsonschema_array_items(
 
 @pytest.mark.parametrize(
     "min_items,max_items,unique_items",
-    itertools.product(
-        (0, 3, 5, 11),
-        (None, 15, 20, 25),
-        (True, False)
-    )
+    itertools.product((0, 3, 5, 11), (None, 15, 20, 25), (True, False)),
 )
 def test_jsonschema_array_length(
     faker, repeats_for_slow, min_items, max_items, unique_items
