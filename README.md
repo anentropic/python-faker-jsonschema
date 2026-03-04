@@ -9,4 +9,5 @@ This project now uses [uv](https://docs.astral.sh/uv/) for dependency and enviro
 uv sync --group dev
 uv run pytest
 uv run ruff check .
+just test
 ```
