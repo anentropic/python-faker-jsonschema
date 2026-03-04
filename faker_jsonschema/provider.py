@@ -5,6 +5,7 @@ import math
 import operator
 import re
 import sys
+import warnings
 from base64 import b64encode
 from dataclasses import dataclass
 from decimal import Decimal
@@ -29,8 +30,7 @@ import js_regex
 import pytz
 from jsonschema import validate, ValidationError
 from faker.providers import BaseProvider
-from hypothesis import find, settings, strategies as st
-from hypothesis.errors import NoSuchExample
+from hypothesis import strategies as st
 from wrapt import ObjectProxy
 
 """
@@ -592,26 +592,30 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         if pattern is not None:
             # (returns early)
             # NOTE: `format` is ignored if `pattern` is given
-            # TODO: js_regex.compile returns a compiled regex that is usable but
-            # has `pattern` attribute set to None which hypothesis doesn't like
-            _js_pattern = js_regex.compile(pattern)
-            regex_st = st.from_regex(_js_pattern)
-            try:
-                return find(
-                    regex_st,
-                    is_valid,
-                    settings=settings(
-                        max_examples=self._context.max_search,
-                        database=None,
-                        deadline=None,
-                    ),
-                )
-            except NoSuchExample as e:
-                raise UnsatisfiableConstraintsError(
-                    f"Unable to generate any random value that matches "
-                    f"pattern: /{pattern}/ and minLength: {min_length}, "
-                    f"maxLength: {max_length} after {self._context.max_search} attempts."
-                ) from e
+            # Validate as JS regex (raises NotJavascriptRegex for incompatible patterns)
+            js_regex.compile(pattern)
+            # Use from_regex strategy with .example() for varied output;
+            # hypothesis.find() shrinks to minimal examples which is not
+            # suitable for data generation (always produces same value).
+            regex_st = st.from_regex(re.compile(pattern))
+            if max_length is not None:
+                regex_st = regex_st.filter(lambda s: len(s) <= max_length)
+            if min_length > 0:
+                regex_st = regex_st.filter(lambda s: len(s) >= min_length)
+            for _ in range(self._context.max_search):
+                try:
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        example = regex_st.example()
+                except Exception:
+                    break
+                if is_valid(example):
+                    return example
+            raise UnsatisfiableConstraintsError(
+                f"Unable to generate any random value that matches "
+                f"pattern: /{pattern}/ and minLength: {min_length}, "
+                f"maxLength: {max_length} after {self._context.max_search} attempts."
+            )
         elif format_ is not None:
             # (returns early)
             # NOTE: we will 'fall through' if no matching faker can be found
@@ -1158,7 +1162,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             non_required_attrs = properties.keys() - required
             if non_required_attrs:
                 sampled_non_required = self.generator.random_sample(
-                    properties.keys() - required,
+                    tuple(properties.keys() - required),
                     length=_count,
                 )
                 generate_values(sampled_non_required)
@@ -1184,10 +1188,16 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             _schema = {"type": "string"}
             _schema.update(property_names)
             method = partial(self._from_schema, schema=_schema)
-            generated_names = [
-                method()
-                for _ in range(_count)
-            ]
+            # generate unique names to avoid dict key collisions
+            generated_names: list[str] = []
+            existing_keys = set(generated.keys())
+            for _ in range(_count * 5):  # allow retries for uniqueness
+                name = method()
+                if name not in existing_keys:
+                    generated_names.append(name)
+                    existing_keys.add(name)
+                if len(generated_names) >= _count:
+                    break
             generate_values(generated_names)
 
         return generated
