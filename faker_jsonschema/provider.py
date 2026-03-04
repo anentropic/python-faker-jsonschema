@@ -89,6 +89,7 @@ class TypeName(str, Enum):
     BOOLEAN = "boolean"
     ARRAY = "array"
     OBJECT = "object"
+    NULL = "null"
     ONE_OF = "oneOf"  # data must be valid against only one of the sub-schemas
     ANY_OF = "anyOf"  # data must be valid against any one of the sub-schemas
     ALL_OF = "allOf"  # data must be valid against all of the sub-schemas
@@ -101,6 +102,7 @@ FLAT_TYPES = {
     TypeName.NUMBER,
     TypeName.INTEGER,
     TypeName.BOOLEAN,
+    TypeName.NULL,
 }
 
 NESTED_TYPES = {
@@ -225,6 +227,7 @@ class Context:
     max_search: Final[int] = 500
     default_collection_max: Final[int] = 50
     default_property_schema = {"type": "string", "format": "user_name"}
+    _root_schema: Optional[SchemaT] = None
 
 
 L = TypeVar("L", bound=JsonT)
@@ -342,12 +345,34 @@ _numeric_attr_merge_funcs = {
     "maximum": min,
     "exclusiveMin": operator.or_,
     "exclusiveMax": operator.or_,
+    "exclusiveMinimum": max,
+    "exclusiveMaximum": min,
     "multipleOf": _resolve_multiple_of,
 }
+
+
+def _resolve_prefix_items(left: List[SchemaT], right: List[SchemaT]) -> List[SchemaT]:
+    """Merge prefixItems: merge pairwise, keep longer."""
+    result = []
+    for i in range(max(len(left), len(right))):
+        if i < len(left) and i < len(right):
+            result.append(_merge_schemas(left[i], right[i]))
+        elif i < len(left):
+            result.append(left[i])
+        else:
+            result.append(right[i])
+    return result
+
 
 TYPE_ATTR_MERGE_RESOLVERS = {
     TypeName.ARRAY: {
         "items": _merge_schemas,  # NOTE: relies on OpenAPI homogenous arrays
+        "prefixItems": _resolve_prefix_items,
+        "additionalItems": _resolve_additional_properties,  # same semantics
+        "unevaluatedItems": _resolve_additional_properties,
+        "contains": _merge_schemas,
+        "minContains": max,
+        "maxContains": min,
         "minItems": max,
         "maxItems": min,
         "uniqueItems": operator.or_,
@@ -373,6 +398,8 @@ TYPE_ATTR_MERGE_RESOLVERS = {
         "pattern": _resolve_equal_or_error,
         # (`format`s are likely to be mutually exclusive)
         "format": _resolve_equal_or_error,
+        "contentEncoding": _resolve_equal_or_error,
+        "contentMediaType": _resolve_equal_or_error,
     },
 }
 
@@ -471,6 +498,42 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             # :: -> 1000:1000:1000:1000:1000:1abc:1007:1def
             lengths=range(2, 40),
         ),
+        # JSON Schema draft-07+ formats:
+        "time": StringFormat(
+            length_type=LengthType.FIXED,
+            # 17:32:28+00:00 -> 17:32:28+05:30
+            lengths=range(8, 15),
+        ),
+        "duration": StringFormat(
+            length_type=LengthType.UNCONSTRAINED,
+        ),
+        "uri-reference": StringFormat(
+            length_type=LengthType.UNCONSTRAINED,
+        ),
+        "uri-template": StringFormat(
+            length_type=LengthType.UNCONSTRAINED,
+        ),
+        "iri": StringFormat(
+            length_type=LengthType.UNCONSTRAINED,
+        ),
+        "iri-reference": StringFormat(
+            length_type=LengthType.UNCONSTRAINED,
+        ),
+        "idn-email": StringFormat(
+            length_type=LengthType.UNCONSTRAINED,
+        ),
+        "idn-hostname": StringFormat(
+            length_type=LengthType.UNCONSTRAINED,
+        ),
+        "json-pointer": StringFormat(
+            length_type=LengthType.UNCONSTRAINED,
+        ),
+        "relative-json-pointer": StringFormat(
+            length_type=LengthType.UNCONSTRAINED,
+        ),
+        "regex": StringFormat(
+            length_type=LengthType.UNCONSTRAINED,
+        ),
     }
 
     FLOAT_OFFSET: Final = float("0.{}1".format("0" * (sys.float_info.dig - 2)))
@@ -542,12 +605,124 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
     def _format_ipv6(self) -> str:
         return self.generator.ipv6()
 
+    def _format_time(self) -> str:
+        """RFC 3339 §5.6 full-time, e.g. '17:32:28+00:00'."""
+        t = self.generator.time(pattern="%H:%M:%S")
+        tz = pytz.timezone(self.generator.timezone())
+        import datetime
+
+        offset = tz.utcoffset(datetime.datetime.now())
+        if offset is None or offset == datetime.timedelta(0):
+            return f"{t}Z"
+        total_seconds = int(offset.total_seconds())
+        sign = "+" if total_seconds >= 0 else "-"
+        total_seconds = abs(total_seconds)
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes = remainder // 60
+        return f"{t}{sign}{hours:02d}:{minutes:02d}"
+
+    def _format_duration(self) -> str:
+        """ISO 8601 / RFC 3339 Appendix A duration, e.g. 'P3Y6M4DT12H30M5S'."""
+        parts = []
+        years = self.generator.random_int(0, 10)
+        months = self.generator.random_int(0, 11)
+        days = self.generator.random_int(0, 30)
+        hours = self.generator.random_int(0, 23)
+        minutes = self.generator.random_int(0, 59)
+        seconds = self.generator.random_int(0, 59)
+        if years:
+            parts.append(f"{years}Y")
+        if months:
+            parts.append(f"{months}M")
+        if days:
+            parts.append(f"{days}D")
+        time_parts = []
+        if hours:
+            time_parts.append(f"{hours}H")
+        if minutes:
+            time_parts.append(f"{minutes}M")
+        if seconds:
+            time_parts.append(f"{seconds}S")
+        date_part = "".join(parts)
+        time_part = "T" + "".join(time_parts) if time_parts else ""
+        result = f"P{date_part}{time_part}"
+        if result == "P":
+            result = "PT0S"
+        return result
+
+    def _format_uri_reference(self) -> str:
+        """URI-reference: either a URI or a relative-reference."""
+        if self.generator.random_int(0, 1):
+            return self.generator.uri()
+        # relative reference
+        path = "/".join(
+            self.generator.pystr(min_chars=1, max_chars=8)
+            for _ in range(self.generator.random_int(1, 4))
+        )
+        return f"/{path}"
+
+    def _format_uri_template(self) -> str:
+        """RFC 6570 URI Template, e.g. 'https://example.com/{id}'."""
+        base = self.generator.uri()
+        var_name = self.generator.pystr(min_chars=2, max_chars=8)
+        return f"{base}{{{var_name}}}"
+
+    def _format_iri(self) -> str:
+        """IRI (RFC 3987). ASCII URIs are valid IRIs."""
+        return self.generator.uri()
+
+    def _format_iri_reference(self) -> str:
+        """IRI-reference (RFC 3987). Reuse uri-reference logic."""
+        return self._format_uri_reference()
+
+    def _format_idn_email(self) -> str:
+        """Internationalized email (RFC 6531). ASCII is a valid subset."""
+        return self.generator.email()
+
+    def _format_idn_hostname(self) -> str:
+        """Internationalized hostname (RFC 5890). ASCII is a valid subset."""
+        return self.generator.hostname()
+
+    def _format_json_pointer(self) -> str:
+        """RFC 6901 JSON Pointer, e.g. '/foo/bar/0'."""
+        segments = [
+            self.generator.pystr(min_chars=1, max_chars=8)
+            for _ in range(self.generator.random_int(1, 5))
+        ]
+        return "/" + "/".join(segments)
+
+    def _format_relative_json_pointer(self) -> str:
+        """Relative JSON Pointer, e.g. '1/foo/bar'."""
+        prefix = str(self.generator.random_int(0, 9))
+        if self.generator.random_int(0, 1):
+            segments = [
+                self.generator.pystr(min_chars=1, max_chars=8)
+                for _ in range(self.generator.random_int(1, 4))
+            ]
+            return prefix + "/" + "/".join(segments)
+        return prefix + "#"
+
+    def _format_regex(self) -> str:
+        """A valid regular expression."""
+        patterns = [
+            r"^[a-z]+$",
+            r"\d{2,4}-\d{2}-\d{2}",
+            r"[A-Z][a-z]*",
+            r"^\S+@\S+\.\S+$",
+            r"(foo|bar|baz)",
+            r"[0-9a-fA-F]+",
+            r".{1,10}",
+        ]
+        return self.generator.random_element(patterns)
+
     def jsonschema_string(
         self,
         min_length: int = 0,
         max_length: Optional[int] = None,
         pattern: Optional[str] = None,
         format_: Optional[str] = None,
+        content_encoding: Optional[str] = None,
+        content_media_type: Optional[str] = None,
     ) -> StrT:
         """
         Args:
@@ -612,6 +787,16 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             raise ValueError("minLength must be >= 0")
         if max_length is not None and max_length < min_length:
             raise ValueError("maxLength must be >= minLength")
+
+        # Handle contentEncoding (draft 2019-09+)
+        # When contentEncoding is "base64", generate base64-encoded content
+        if content_encoding is not None:
+            if content_encoding.lower() == "base64":
+                return self._format_byte(
+                    min_length=min_length,
+                    max_length=max_length if max_length is not None else 255,
+                )
+            # For unknown encodings, fall through to normal generation
 
         def is_valid(val) -> bool:
             if len(val) < min_length:
@@ -775,6 +960,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         maximum: Optional[Number] = None,
         exclusive_min: bool = False,
         exclusive_max: bool = False,
+        exclusive_minimum: Optional[Number] = None,
+        exclusive_maximum: Optional[Number] = None,
         multiple_of: Optional[Number] = None,
     ) -> Number:
         if mode is NumberMode.FLOAT:
@@ -799,6 +986,15 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         # TODO:
         # https://json-schema.org/draft-07/json-schema-validation.html#rfc.section.6.2.1
         # multiple_of must be > 0
+
+        # Draft-06+ numeric exclusiveMinimum/exclusiveMaximum
+        # These take precedence over the draft-04 boolean form
+        if exclusive_minimum is not None:
+            minimum = exclusive_minimum
+            exclusive_min = True
+        if exclusive_maximum is not None:
+            maximum = exclusive_maximum
+            exclusive_max = True
 
         original_min = minimum
         original_max = maximum
@@ -827,9 +1023,11 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
         # `better_pyfloat` range is inclusive
         if exclusive_min and minimum is not None:
-            minimum = min(offset_val(minimum, operator.add), maximum)
+            offset_min = offset_val(minimum, operator.add)
+            minimum = min(offset_min, maximum) if maximum is not None else offset_min
         if exclusive_max and maximum is not None:
-            maximum = max(offset_val(maximum, operator.sub), minimum)
+            offset_max = offset_val(maximum, operator.sub)
+            maximum = max(offset_max, minimum) if minimum is not None else offset_max
 
         safe_min = _make_safe(minimum)
         safe_max = _make_safe(maximum)
@@ -917,6 +1115,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         maximum: Optional[float] = None,
         exclusive_min: bool = False,
         exclusive_max: bool = False,
+        exclusive_minimum: Optional[float] = None,
+        exclusive_maximum: Optional[float] = None,
         multiple_of: Optional[float] = None,
     ) -> float:
         return self._jsonschema_number(
@@ -925,6 +1125,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             maximum=maximum,
             exclusive_min=exclusive_min,
             exclusive_max=exclusive_max,
+            exclusive_minimum=exclusive_minimum,
+            exclusive_maximum=exclusive_maximum,
             multiple_of=multiple_of,
         )
 
@@ -934,6 +1136,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         maximum: Optional[int] = None,
         exclusive_min: bool = False,
         exclusive_max: bool = False,
+        exclusive_minimum: Optional[int] = None,
+        exclusive_maximum: Optional[int] = None,
         multiple_of: Optional[int] = None,
     ) -> int:
         return self._jsonschema_number(
@@ -942,11 +1146,16 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             maximum=maximum,
             exclusive_min=exclusive_min,
             exclusive_max=exclusive_max,
+            exclusive_minimum=exclusive_minimum,
+            exclusive_maximum=exclusive_maximum,
             multiple_of=multiple_of,
         )
 
     def jsonschema_boolean(self) -> bool:
         return self.generator.boolean()
+
+    def jsonschema_null(self) -> None:
+        return None
 
     def jsonschema_oneof(self, schemas: Iterable[JsonT]) -> JsonT:
         schema = self.generator.random_element(schemas)
@@ -1068,51 +1277,204 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
     def jsonschema_array(
         self,
         items: Optional[SchemaT] = None,
+        prefix_items: Optional[List[SchemaT]] = None,
+        additional_items: Optional[Union[bool, SchemaT]] = None,
+        unevaluated_items: Optional[Union[bool, SchemaT]] = None,
+        contains: Optional[SchemaT] = None,
+        min_contains: Optional[int] = None,
+        max_contains: Optional[int] = None,
         min_items: int = 0,
         max_items: Optional[int] = None,
         unique_items: bool = False,
     ) -> List[JsonT]:
         """
-        NOTE:
-        unlike pure JSON Schema, OpenAPI arrays must be homogenous and
-        `items` schema is required
+        Generate a list conforming to JSON Schema array constraints.
+
+        Supports:
+        - items (single schema or absent)
+        - prefixItems (draft 2020-12 tuple validation)
+        - additionalItems (draft-04 through 2019-09)
+        - unevaluatedItems (draft 2019-09+)
+        - contains / minContains / maxContains
+        - minItems / maxItems / uniqueItems
         """
         if min_items < 0:
             raise ValueError("minItems must be >= 0")
         if max_items is not None and min_items > max_items:
             raise ValueError("maxItems must be >= minItems")
 
-        if items is None:
-            type_, _ = self._random_type_method()
-            items = {"type": type_.value}
+        prefix_items = prefix_items or []
+        n_prefix = len(prefix_items)
+
+        # Determine the schema for remaining (non-prefix) items
+        remaining_schema: Optional[SchemaT] = None
+        if prefix_items and items is not None:
+            # Draft 2020-12: items applies after prefixItems
+            # items: false → no additional items beyond prefix
+            if items is False:
+                remaining_schema = None
+            elif items is True:
+                remaining_schema = {}
+            else:
+                remaining_schema = items
+        elif prefix_items and additional_items is not None:
+            # Draft-04 through 2019-09: additionalItems applies after tuple items
+            if additional_items is False:
+                remaining_schema = None  # no additional items allowed
+            elif isinstance(additional_items, dict):
+                remaining_schema = additional_items
+            else:
+                remaining_schema = None  # True means any schema
+                if additional_items is True:
+                    remaining_schema = {}
+        elif items is not None:
+            # Standard homogeneous array
+            if items is False:
+                remaining_schema = None
+            elif items is True:
+                remaining_schema = {}
+            else:
+                remaining_schema = items
+        else:
+            # No item schema at all — pick a random type
+            if not prefix_items:
+                type_, _ = self._random_type_method()
+                remaining_schema = {"type": type_.value}
 
         if max_items is None:
-            max_items = self._get_collection_max(min_items)
+            max_items = self._get_collection_max(max(min_items, n_prefix))
 
-        count = self._safe_random_int(min_items, max_items)
-        dup_count = 0
-        if not unique_items and count > 1:
-            dup_count = self.generator.random_int(0, count // 2)
-            count -= dup_count
+        # When no remaining items are allowed, cap at prefix length
+        if remaining_schema is None and prefix_items:
+            max_items = min(max_items, n_prefix)
 
+        # Ensure we have at least enough items for prefix
+        effective_min = max(min_items, n_prefix) if prefix_items else min_items
+
+        count = self._safe_random_int(effective_min, max_items)
+
+        # Generate prefix items
         generated = []
-        duplicates = []
-        while len(generated) < count:
-            item = self.descend_into(self._from_schema)(items)
-            if unique_items and item in generated:
-                if len(duplicates) < dup_count:
-                    duplicates.append(item)
-            else:
-                generated.append(item)
+        for i in range(min(count, n_prefix)):
+            item = self.descend_into(self._from_schema)(prefix_items[i])
+            generated.append(item)
 
-        if not unique_items:
-            # insert duplicates
-            if len(duplicates) < dup_count:
-                diff = dup_count - len(duplicates)
-                top_up = self.generator.random_sample(generated, length=diff)
-                duplicates.extend(top_up)
-            generated.extend(duplicates)
-            shuffle(generated)
+        # Generate remaining items
+        remaining_count = count - len(generated)
+        if remaining_count > 0 and remaining_schema is not None:
+            dup_count = 0
+            actual_count = remaining_count
+            if not unique_items and actual_count > 1:
+                dup_count = self.generator.random_int(0, actual_count // 2)
+                actual_count -= dup_count
+
+            remaining = []
+            duplicates = []
+            for _ in range(actual_count * 3):  # allow retries for uniqueness
+                item = self.descend_into(self._from_schema)(remaining_schema)
+                if unique_items and (item in generated or item in remaining):
+                    if not unique_items and len(duplicates) < dup_count:
+                        duplicates.append(item)
+                else:
+                    remaining.append(item)
+                if len(remaining) >= actual_count:
+                    break
+
+            if not unique_items:
+                if len(duplicates) < dup_count and remaining:
+                    diff = dup_count - len(duplicates)
+                    top_up = self.generator.random_sample(remaining, length=diff)
+                    duplicates.extend(top_up)
+                remaining.extend(duplicates)
+                shuffle(remaining)
+
+            generated.extend(remaining)
+        elif remaining_count > 0 and remaining_schema is None and not prefix_items:
+            # No schema: generate random items
+            dup_count = 0
+            actual_count = remaining_count
+            if not unique_items and actual_count > 1:
+                dup_count = self.generator.random_int(0, actual_count // 2)
+                actual_count -= dup_count
+
+            remaining = []
+            duplicates = []
+            for _ in range(actual_count):
+                type_, _ = self._random_type_method()
+                item_schema = {"type": type_.value}
+                item = self.descend_into(self._from_schema)(item_schema)
+                if unique_items and (item in generated or item in remaining):
+                    if not unique_items and len(duplicates) < dup_count:
+                        duplicates.append(item)
+                else:
+                    remaining.append(item)
+
+            if not unique_items:
+                if len(duplicates) < dup_count and remaining:
+                    diff = dup_count - len(duplicates)
+                    top_up = self.generator.random_sample(remaining, length=diff)
+                    duplicates.extend(top_up)
+                remaining.extend(duplicates)
+                shuffle(remaining)
+
+            generated.extend(remaining)
+
+        # Handle unevaluatedItems: apply to positions not covered by
+        # prefixItems, items, or contains
+        if unevaluated_items is not None and unevaluated_items is not True:
+            evaluated_up_to = n_prefix if prefix_items else 0
+            if remaining_schema is not None:
+                evaluated_up_to = len(generated)  # items covered everything
+            if unevaluated_items is False:
+                generated = generated[:evaluated_up_to]
+            elif isinstance(unevaluated_items, dict):
+                for i in range(evaluated_up_to, len(generated)):
+                    generated[i] = self.descend_into(self._from_schema)(
+                        unevaluated_items
+                    )
+
+        # Handle contains: ensure the array has items matching the contains schema
+        if contains is not None:
+            effective_min_contains = min_contains if min_contains is not None else 1
+            effective_max_contains = max_contains
+
+            # Count how many already match
+            matching_count = 0
+            for item in generated:
+                try:
+                    validate(item, contains)
+                    matching_count += 1
+                except ValidationError:
+                    pass
+
+            # Add items to satisfy minContains
+            while matching_count < effective_min_contains:
+                if max_items is not None and len(generated) >= max_items:
+                    break
+                item = self.descend_into(self._from_schema)(contains)
+                generated.append(item)
+                matching_count += 1
+
+            # Remove excess matches to satisfy maxContains
+            if (
+                effective_max_contains is not None
+                and matching_count > effective_max_contains
+            ):
+                excess = matching_count - effective_max_contains
+                # Replace some matching items with non-matching ones
+                for i in range(len(generated) - 1, -1, -1):
+                    if excess <= 0:
+                        break
+                    try:
+                        validate(generated[i], contains)
+                    except ValidationError:
+                        continue
+                    # Replace with a random item that doesn't match
+                    if remaining_schema is not None:
+                        generated[i] = self.descend_into(self._from_schema)(
+                            remaining_schema
+                        )
+                        excess -= 1
 
         return generated
 
@@ -1362,12 +1724,58 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         All recursive calls should use this private method instead of the
         public `from_schema` below so that `context._depth` is not reset.
         """
+        # Handle boolean schemas (draft-06+)
+        if schema is True or schema == {}:
+            return self.jsonschema_any()
+        if schema is False:
+            raise UnsatisfiableConstraintsError(
+                "Boolean schema 'false' rejects all instances."
+            )
+
+        # Handle $ref resolution
+        if "$ref" in schema:
+            schema = self._resolve_ref(schema)
+
+        # Handle const (draft-06+)
+        if "const" in schema:
+            return schema["const"]
+
         # Handle if/then/else: randomly choose a branch and merge it
         if "if" in schema:
             schema = self._apply_if_then_else(schema)
 
+        # Pre-process legacy "dependencies" keyword (draft-04 through draft-07)
+        # Split into "dependentRequired" (array values) and
+        # "dependentSchemas" (schema values) for the object generator.
+        if "dependencies" in schema:
+            schema = dict(schema)  # shallow copy to avoid mutating caller's dict
+            deps = schema.pop("dependencies")
+            dep_required = schema.get("dependentRequired", {})
+            dep_schemas = schema.get("dependentSchemas", {})
+            for key, val in deps.items():
+                if isinstance(val, list):
+                    # Array of strings → dependentRequired
+                    existing = dep_required.get(key, [])
+                    dep_required[key] = list(set(existing) | set(val))
+                elif isinstance(val, dict):
+                    # Schema → dependentSchemas
+                    dep_schemas[key] = val
+            if dep_required:
+                schema["dependentRequired"] = dep_required
+            if dep_schemas:
+                schema["dependentSchemas"] = dep_schemas
+
+        # Handle enum without type (intercepted here because nullable_or_enum
+        # decorator only fires on type-dispatched methods)
+        if "enum" in schema and "type" not in schema:
+            # Check for compound types first
+            for type_ in COMPOUND_TYPES:
+                if type_.value in schema:
+                    return self._jsonschema_compound_type_from_schema(schema, type_)
+            return self.jsonschema_enum(JsonEnum(schema["enum"]))
+
         try:
-            type_ = TypeName(schema["type"])
+            type_val = schema["type"]
         except KeyError:
             for type_ in COMPOUND_TYPES:
                 if type_.value in schema:
@@ -1375,6 +1783,12 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             else:
                 return self._jsonschema_any_from_schema(schema)
         else:
+            # Handle type as array (draft-06+): e.g. {"type": ["string", "null"]}
+            if isinstance(type_val, list):
+                chosen = self.generator.random_element(type_val)
+                schema = {**schema, "type": chosen}
+                type_val = chosen
+            type_ = TypeName(type_val)
             return self._jsonschema_basic_type_from_schema(schema, type_)
 
     def _apply_if_then_else(self, schema: SchemaT) -> SchemaT:
@@ -1412,6 +1826,47 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
         return result
 
+    def _resolve_ref(self, schema: SchemaT) -> SchemaT:
+        """Resolve a ``$ref`` against the root schema's ``$defs``/``definitions``.
+
+        If the reference is a JSON pointer of the form ``#/$defs/<name>`` or
+        ``#/definitions/<name>``, look into the root schema stored on
+        ``Context``.  Any keys in *schema* alongside ``$ref`` are merged into
+        the resolved schema (per draft 2019-09+, keywords may appear next to
+        ``$ref``).
+        """
+        ref = schema["$ref"]
+        root = self.context._root_schema
+        if root is None:
+            raise UnsatisfiableConstraintsError(
+                f"Cannot resolve $ref {ref!r}: no root schema available."
+            )
+
+        resolved = None
+        if ref.startswith("#/"):
+            # walk the JSON pointer
+            pointer = ref[2:].split("/")
+            target = root
+            for part in pointer:
+                if isinstance(target, dict):
+                    target = target.get(part)
+                else:
+                    target = None
+                if target is None:
+                    break
+            if target is not None and isinstance(target, dict):
+                resolved = target
+
+        if resolved is None:
+            raise UnsatisfiableConstraintsError(f"Cannot resolve $ref {ref!r}.")
+
+        # Merge sibling keywords alongside $ref (draft 2019-09+)
+        extra = {k: v for k, v in schema.items() if k != "$ref"}
+        if extra:
+            resolved = {**resolved, **extra}
+
+        return resolved
+
     def descend_into(self, f):
         @wraps(f)
         def wrapped(*args, **kwargs):
@@ -1435,6 +1890,9 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
     def from_schema(self, schema: SchemaT, **context):
         self._context = Context(**context)
+        # Store root schema for $ref resolution
+        if isinstance(schema, dict):
+            self.context._root_schema = schema
         try:
             return self._from_schema(schema)
         finally:
