@@ -16,6 +16,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "basedpyright>=1.38.2",
     "flaky>=3.8.1",
     "ipython>=8.0.0",
     "pdbpp>=0.12.1",
