@@ -279,9 +279,7 @@ def test_jsonschema_object_additional_properties_schema(faker, repeats_for_slow)
         assert isinstance(result["name"], str)
         for key, val in result.items():
             if key != "name":
-                assert isinstance(val, int), (
-                    f"Key {key!r} should be int, got {type(val)}"
-                )
+                assert isinstance(val, int), f"Key {key!r} should be int, got {type(val)}"
         validate(result, schema)
 
 
@@ -727,9 +725,7 @@ def test_jsonschema_object_pattern_properties_unmatchable(faker, repeats_for_slo
 class TestObjectEdgeCases:
     """Object generation edge cases and termination checks."""
 
-    def test_dependent_required_adds_beyond_max_properties(
-        self, faker, repeats_for_slow
-    ):
+    def test_dependent_required_adds_beyond_max_properties(self, faker, repeats_for_slow):
         """
         DependentRequired may add properties beyond maxProperties.
 
@@ -789,9 +785,7 @@ class TestObjectEdgeCases:
                                                         "l6": {
                                                             "type": "object",
                                                             "properties": {
-                                                                "val": {
-                                                                    "type": "string"
-                                                                }
+                                                                "val": {"type": "string"}
                                                             },
                                                         }
                                                     },
@@ -810,9 +804,7 @@ class TestObjectEdgeCases:
         result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
 
-    def test_object_additional_properties_schema_with_constraints(
-        self, faker, repeats_for_slow
-    ):
+    def test_object_additional_properties_schema_with_constraints(self, faker, repeats_for_slow):
         """AdditionalProperties as a constrained schema."""
         schema = {
             "type": "object",

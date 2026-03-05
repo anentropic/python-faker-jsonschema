@@ -59,9 +59,7 @@ def test_from_schema_no_type_key(faker, repeats_for_fast):
     for _ in range(repeats_for_fast):
         result = faker.from_jsonschema(schema)
         # should produce something and not crash
-        assert (
-            result is not None or result is None
-        )  # always passes; main test is no crash
+        assert result is not None or result is None  # always passes; main test is no crash
 
 
 # ── Type as array (draft-06+) ────────────────────────────────────────

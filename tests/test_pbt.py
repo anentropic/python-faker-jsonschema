@@ -311,9 +311,7 @@ def _exclusive_integer_schemas():
             "exclusiveMinimum": st.integers(min_value=-100, max_value=100),
             "exclusiveMaximum": st.integers(min_value=-100, max_value=100),
         },
-    ).filter(
-        lambda s: s.get("exclusiveMaximum", 9999) > s.get("exclusiveMinimum", -9999) + 1
-    )
+    ).filter(lambda s: s.get("exclusiveMaximum", 9999) > s.get("exclusiveMinimum", -9999) + 1)
 
 
 @given(schema=_exclusive_integer_schemas())
