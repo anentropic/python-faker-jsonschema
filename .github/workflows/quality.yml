@@ -42,3 +42,36 @@ jobs:
       - name: Cache pruning
         if: always()
         run: uv cache prune --ci
+
+  fuzz:
+    name: Multi-seed fuzz
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        seed: [1, 42, 12345, 314159, 9999999]
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Sync dependencies
+        run: uv sync --locked --dev
+
+      - name: Fuzz tests (seed=${{ matrix.seed }})
+        env:
+          SEED: ${{ matrix.seed }}
+          REPEATS_SLOW: 50
+          REPEATS_FAST: 200
+        run: uv run pytest -q
+
+      - name: Cache pruning
+        if: always()
+        run: uv cache prune --ci
