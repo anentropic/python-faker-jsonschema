@@ -75,7 +75,7 @@ def test_from_schema_array_basic(faker, repeats_for_slow):
         "maxItems": 5,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, list)
         validate(result, schema)
 
@@ -90,7 +90,7 @@ def test_from_schema_array_unique_items(faker, repeats_for_slow):
         "maxItems": 5,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, list)
         validate(result, schema)
 
@@ -103,7 +103,7 @@ def test_from_schema_array_no_items(faker, repeats_for_slow):
         "maxItems": 3,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, list)
         assert len(result) <= 3
 
@@ -170,7 +170,7 @@ class TestArrayUniqueItemsEdgeCases:
             "maxItems": 2,
         }
         for _ in range(repeats_for_slow):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, list)
             assert len(result) == 2, f"Expected 2 items, got {len(result)}: {result}"
             assert set(result) == {True, False}, (
@@ -188,7 +188,7 @@ class TestArrayUniqueItemsEdgeCases:
             "maxItems": 3,
         }
         for _ in range(repeats_for_slow):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, list)
             assert len(result) >= 2
             assert len(set(result)) == len(result)  # all unique
@@ -208,7 +208,7 @@ class TestArrayUniqueItemsEdgeCases:
             "maxItems": 5,
         }
         for _ in range(repeats_for_slow):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, list)
             assert len(result) == 5
             assert len(set(result)) == 5, f"Expected 5 unique values, got {result}"
@@ -230,7 +230,7 @@ class TestArrayUniqueItemsEdgeCases:
             "maxItems": 5,
         }
         for _ in range(repeats_for_slow):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, list)
             assert len(result) == 5
             assert set(result) == {10, 20, 30, 40, 50}
@@ -246,7 +246,7 @@ class TestArrayUniqueItemsEdgeCases:
             "maxItems": 3,
         }
         for _ in range(repeats_for_slow):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, list)
             assert len(result) == 3, f"Expected 3 items, got {result}"
             # Check uniqueness by converting to set of JsonVal-like wrappers
@@ -264,7 +264,7 @@ class TestArrayUniqueItemsEdgeCases:
             "maxItems": 10,
         }
         for _ in range(repeats_for_slow):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, list)
             # domain is only {true, false}, so we get at most 2
             assert len(result) <= 2
@@ -286,7 +286,7 @@ def test_prefix_items_basic(faker, repeats_for_slow):
         "items": False,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, list)
         assert len(result) == 3
         assert isinstance(result[0], str)
@@ -308,7 +308,7 @@ def test_prefix_items_with_additional(faker, repeats_for_slow):
         "maxItems": 6,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, list)
         assert 4 <= len(result) <= 6
         assert isinstance(result[0], str)
@@ -343,7 +343,7 @@ def test_empty_prefix_items_with_items_false(faker, repeats_for_slow):
         "items": False,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, list)
         assert len(result) == 2
         assert isinstance(result[0], str)
@@ -393,7 +393,7 @@ def test_array_zero_max_items(faker, repeats_for_slow):
         "maxItems": 0,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert result == []
         validate(result, schema)
 
@@ -411,7 +411,7 @@ def test_contains_basic(faker, repeats_for_slow):
         "maxItems": 10,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, list)
         assert any(isinstance(x, int) and x >= 50 for x in result)
         validate(result, schema)
@@ -428,7 +428,7 @@ def test_min_contains(faker, repeats_for_slow):
         "maxItems": 15,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, list)
         matching = sum(1 for x in result if isinstance(x, int) and x >= 50)
         assert matching >= 3
@@ -466,7 +466,7 @@ def test_contains_with_tight_constraints(faker, repeats_for_slow):
         "maxItems": 20,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, list)
         matching = sum(1 for x in result if isinstance(x, int) and 90 <= x <= 100)
         assert matching >= 2, (
@@ -485,7 +485,7 @@ def test_contains_tight_maxitems_equals_mincontains(faker, repeats_for_slow):
         "maxItems": 3,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, list)
         assert len(result) == 3
         matching = sum(1 for x in result if isinstance(x, str) and len(x) >= 5)
@@ -513,7 +513,7 @@ def test_contains_with_maxcontains(faker, repeats_for_slow):
         "maxItems": 10,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, list)
         matching = sum(1 for x in result if isinstance(x, int) and 90 <= x <= 100)
         assert matching >= 1, f"Expected >= 1 match, got {matching}: {result}"
@@ -540,7 +540,7 @@ def test_contains_disjoint_from_items(faker, repeats_for_slow):
         "maxItems": 10,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, list)
         assert all(isinstance(x, str) for x in result)
         long_strings = sum(1 for x in result if len(x) >= 20)
@@ -560,7 +560,7 @@ def test_contains_without_items(faker, repeats_for_slow):
         "maxItems": 10,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, list)
         assert len(result) >= 5
         matching = sum(1 for x in result if isinstance(x, int) and 100 <= x <= 200)

@@ -14,7 +14,7 @@ def test_jsonschema_not_constrained_string(faker, repeats_for_slow):
     successes = 0
     for _ in range(repeats_for_slow):
         try:
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
         except NoExampleFoundError:
             # acceptable — the random type chosen was string and couldn't
             # find a non-matching string in `max_search` attempts
@@ -31,7 +31,7 @@ def test_jsonschema_not_type_integer(faker, repeats_for_slow):
     successes = 0
     for _ in range(repeats_for_slow):
         try:
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
         except NoExampleFoundError:
             continue
         successes += 1
@@ -45,7 +45,7 @@ def test_jsonschema_not_type_boolean(faker, repeats_for_slow):
     successes = 0
     for _ in range(repeats_for_slow):
         try:
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
         except NoExampleFoundError:
             continue
         successes += 1
@@ -60,7 +60,7 @@ def test_jsonschema_not_type_number(faker, repeats_for_slow):
     successes = 0
     for _ in range(repeats_for_slow):
         try:
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
         except NoExampleFoundError:
             continue
         successes += 1
@@ -143,7 +143,7 @@ class TestNotTermination:
         successes = 0
         for _ in range(50):
             try:
-                result = faker.from_schema(schema)
+                result = faker.from_jsonschema(schema)
                 successes += 1
                 assert result is not None
                 validate(result, schema)

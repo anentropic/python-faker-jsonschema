@@ -140,7 +140,7 @@ def _any_schema():
     deadline=None,
 )
 def test_pbt_string_round_trip(schema):
-    result = _faker.from_schema(schema)
+    result = _faker.from_jsonschema(schema)
     validate(result, schema)
 
 
@@ -151,7 +151,7 @@ def test_pbt_string_round_trip(schema):
     deadline=None,
 )
 def test_pbt_integer_round_trip(schema):
-    result = _faker.from_schema(schema)
+    result = _faker.from_jsonschema(schema)
     validate(result, schema)
 
 
@@ -162,7 +162,7 @@ def test_pbt_integer_round_trip(schema):
     deadline=None,
 )
 def test_pbt_number_round_trip(schema):
-    result = _faker.from_schema(schema)
+    result = _faker.from_jsonschema(schema)
     validate(result, schema)
 
 
@@ -173,7 +173,7 @@ def test_pbt_number_round_trip(schema):
     deadline=None,
 )
 def test_pbt_boolean_round_trip(schema):
-    result = _faker.from_schema(schema)
+    result = _faker.from_jsonschema(schema)
     validate(result, schema)
 
 
@@ -184,7 +184,7 @@ def test_pbt_boolean_round_trip(schema):
     deadline=None,
 )
 def test_pbt_array_round_trip(schema):
-    result = _faker.from_schema(schema, default_collection_max=10)
+    result = _faker.from_jsonschema(schema, default_collection_max=10)
     validate(result, schema)
 
 
@@ -195,7 +195,7 @@ def test_pbt_array_round_trip(schema):
     deadline=None,
 )
 def test_pbt_object_round_trip(schema):
-    result = _faker.from_schema(schema)
+    result = _faker.from_jsonschema(schema)
     validate(result, schema)
 
 
@@ -208,7 +208,7 @@ def test_pbt_object_round_trip(schema):
 def test_pbt_any_schema_round_trip(schema):
     """Generate any schema type → from_schema → validate."""
     try:
-        result = _faker.from_schema(schema, default_collection_max=10)
+        result = _faker.from_jsonschema(schema, default_collection_max=10)
     except UnsatisfiableConstraintsError:
         # Some generated schemas may be unsatisfiable — that's fine
         return
@@ -236,7 +236,7 @@ def test_pbt_allof_integer(schema1, schema2):
 
     allof_schema = {"allOf": [schema1, schema2]}
     try:
-        result = _faker.from_schema(allof_schema)
+        result = _faker.from_jsonschema(allof_schema)
     except UnsatisfiableConstraintsError:
         return
     validate(result, schema1)
@@ -253,7 +253,7 @@ def test_pbt_allof_integer(schema1, schema2):
     deadline=None,
 )
 def test_pbt_null_round_trip(schema):
-    result = _faker.from_schema(schema)
+    result = _faker.from_jsonschema(schema)
     assert result is None
     validate(result, schema)
 
@@ -276,7 +276,7 @@ def _type_array_schemas():
     deadline=None,
 )
 def test_pbt_type_array_round_trip(schema):
-    result = _faker.from_schema(schema)
+    result = _faker.from_jsonschema(schema)
     validate(result, schema)
 
 
@@ -298,7 +298,7 @@ def _const_schemas():
     deadline=None,
 )
 def test_pbt_const_round_trip(schema):
-    result = _faker.from_schema(schema)
+    result = _faker.from_jsonschema(schema)
     assert result == schema["const"]
     validate(result, schema)
 
@@ -323,7 +323,7 @@ def _exclusive_integer_schemas():
     deadline=None,
 )
 def test_pbt_exclusive_integer_round_trip(schema):
-    result = _faker.from_schema(schema)
+    result = _faker.from_jsonschema(schema)
     validate(result, schema)
 
 
@@ -347,7 +347,7 @@ def _prefix_items_schemas():
 )
 def test_pbt_prefix_items_round_trip(schema):
     try:
-        result = _faker.from_schema(schema, default_collection_max=10)
+        result = _faker.from_jsonschema(schema, default_collection_max=10)
     except UnsatisfiableConstraintsError:
         return
     validate(result, schema)
@@ -374,7 +374,7 @@ def _ref_schemas():
 )
 def test_pbt_ref_round_trip(schema):
     try:
-        result = _faker.from_schema(schema)
+        result = _faker.from_jsonschema(schema)
     except UnsatisfiableConstraintsError:
         return
     validate(result, schema)

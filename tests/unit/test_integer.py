@@ -136,7 +136,7 @@ def test_from_schema_integer_round_trip(faker, repeats_for_fast, minimum, maximu
     if maximum is not None:
         schema["maximum"] = maximum
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, int)
         validate(result, schema)
 
@@ -145,7 +145,7 @@ def test_from_schema_integer_multiple_of(faker, repeats_for_fast):
     """from_schema round trip with multipleOf."""
     schema = {"type": "integer", "minimum": 0, "maximum": 100, "multipleOf": 5}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, int)
         validate(result, schema)
 
@@ -160,7 +160,7 @@ def test_from_schema_integer_exclusive(faker, repeats_for_fast):
         "exclusiveMax": True,
     }
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, int)
         assert result > 10
         assert result < 20
@@ -173,7 +173,7 @@ def test_exclusive_minimum_numeric_integer(faker, repeats_for_fast):
     """ExclusiveMinimum as number (draft-06+) for integers."""
     schema = {"type": "integer", "exclusiveMinimum": 5, "maximum": 10}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, int)
         assert result > 5
         assert result <= 10
@@ -184,7 +184,7 @@ def test_exclusive_maximum_numeric_integer(faker, repeats_for_fast):
     """ExclusiveMaximum as number (draft-06+) for integers."""
     schema = {"type": "integer", "minimum": 5, "exclusiveMaximum": 10}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, int)
         assert result >= 5
         assert result < 10
@@ -195,7 +195,7 @@ def test_exclusive_both_numeric_integer(faker, repeats_for_fast):
     """Both exclusiveMinimum and exclusiveMaximum as numbers."""
     schema = {"type": "integer", "exclusiveMinimum": 0, "exclusiveMaximum": 5}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, int)
         assert 0 < result < 5
         validate(result, schema)
@@ -219,7 +219,7 @@ class TestNegativeExclusiveBoundsInteger:
         """ExclusiveMinimum with negative value: result must be > boundary."""
         schema = {"type": "integer", "exclusiveMinimum": -5, "maximum": 0}
         for _ in range(repeats_for_fast):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, int)
             assert result > -5, f"Expected > -5, got {result}"
             assert result <= 0
@@ -229,7 +229,7 @@ class TestNegativeExclusiveBoundsInteger:
         """ExclusiveMaximum with negative value: result must be < boundary."""
         schema = {"type": "integer", "minimum": -10, "exclusiveMaximum": -5}
         for _ in range(repeats_for_fast):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, int)
             assert result >= -10
             assert result < -5, f"Expected < -5, got {result}"
@@ -243,7 +243,7 @@ class TestNegativeExclusiveBoundsInteger:
             "exclusiveMaximum": -1,
         }
         for _ in range(repeats_for_fast):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, int)
             assert -10 < result < -1, f"Expected -10 < x < -1, got {result}"
             validate(result, schema)
@@ -274,7 +274,7 @@ class TestNegativeExclusiveBoundsInteger:
             "exclusiveMaximum": 3,
         }
         for _ in range(repeats_for_fast):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, int)
             assert -3 < result < 3
             validate(result, schema)
@@ -336,7 +336,7 @@ class TestMultipleOfEdgeCasesInteger:
             "multipleOf": 5,
         }
         for _ in range(repeats_for_fast):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, int)
             assert 0 < result < 20
             assert result % 5 == 0

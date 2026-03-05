@@ -19,7 +19,7 @@ def provider(faker):
 
 def test_context_reset_after_from_schema(faker, provider):
     """After from_schema completes, _context is reset to None."""
-    faker.from_schema({"type": "string"})
+    faker.from_jsonschema({"type": "string"})
     assert provider._context is None
 
 
@@ -65,7 +65,7 @@ def test_from_schema_max_depth_limits_nesting(faker, repeats_for_slow):
         },
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema, max_depth=2)
+        result = faker.from_jsonschema(schema, max_depth=2)
         assert isinstance(result, dict)
 
 
@@ -83,7 +83,7 @@ def test_from_schema_max_depth_1_flat_types(faker, repeats_for_slow):
         "additionalProperties": False,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema, max_depth=1)
+        result = faker.from_jsonschema(schema, max_depth=1)
         assert isinstance(result, dict)
         assert "a" in result
         assert "b" in result
@@ -123,7 +123,7 @@ def test_from_schema_deeply_nested_terminates(faker):
             },
         },
     }
-    result = faker.from_schema(schema)
+    result = faker.from_jsonschema(schema)
     assert isinstance(result, dict)
 
 
@@ -137,7 +137,7 @@ def test_default_collection_max(faker, repeats_for_slow):
         "items": {"type": "integer"},
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema, default_collection_max=5)
+        result = faker.from_jsonschema(schema, default_collection_max=5)
         assert isinstance(result, list)
         assert len(result) <= 10  # some headroom but bounded
 
@@ -148,7 +148,7 @@ def test_default_collection_max_objects(faker, repeats_for_slow):
         "type": "object",
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema, default_collection_max=3)
+        result = faker.from_jsonschema(schema, default_collection_max=3)
         assert isinstance(result, dict)
         # can't be too strict but should be bounded
         assert len(result) <= 10
@@ -160,5 +160,5 @@ def test_default_collection_max_objects(faker, repeats_for_slow):
 def test_max_search_parameter(faker):
     """max_search is configurable via from_schema context."""
     # Just verify it doesn't crash and respects the parameter
-    result = faker.from_schema({"type": "string"}, max_search=10)
+    result = faker.from_jsonschema({"type": "string"}, max_search=10)
     assert isinstance(result, str)
