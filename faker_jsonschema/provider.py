@@ -1031,7 +1031,10 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         items: list[JsonT] = []
         duplicates: list[JsonT] = []
         for _ in range(max(actual_count * retry_factor, actual_count)):
-            item = generate_item()
+            try:
+                item = generate_item()
+            except UnsatisfiableConstraintsError:
+                break
             if unique_items and (item in existing or item in items):
                 pass
             elif not accept_item(item):
@@ -1850,10 +1853,15 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 return additional_properties
             return {}
 
-        def generate_values(attrs: Iterable[str]) -> None:
+        def generate_values(attrs: Iterable[str], tolerant: bool = False) -> None:
             for attr in attrs:
                 schema = _schema_for_key(attr)
-                val = self.descend_into(self._from_schema)(schema)
+                try:
+                    val = self.descend_into(self._from_schema)(schema)
+                except UnsatisfiableConstraintsError:
+                    if not tolerant:
+                        raise
+                    continue
                 generated[attr] = val
 
         # generate 'required' properties
@@ -1877,7 +1885,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                         tuple(non_required_attrs),
                         length=_count,
                     )
-                    generate_values(sampled_non_required)
+                    generate_values(sampled_non_required, tolerant=True)
                     min_needed = max(0, min_needed - len(sampled_non_required))
 
         # generate patternProperties entries
