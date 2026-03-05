@@ -45,7 +45,7 @@ def test_jsonenum_creation():
 def test_nullable_string(faker):
     """nullable: true on string type → sometimes returns None."""
     schema = {"type": "string", "nullable": True}
-    results = [faker.from_schema(schema) for _ in range(200)]
+    results = [faker.from_jsonschema(schema) for _ in range(200)]
     types = {type(r) for r in results}
     assert type(None) in types, "nullable string should sometimes produce None"
     assert str in types, "nullable string should sometimes produce a string"
@@ -56,7 +56,7 @@ def test_nullable_string(faker):
 def test_nullable_integer(faker):
     """nullable: true on integer type → sometimes returns None."""
     schema = {"type": "integer", "nullable": True}
-    results = [faker.from_schema(schema) for _ in range(200)]
+    results = [faker.from_jsonschema(schema) for _ in range(200)]
     nones = sum(1 for r in results if r is None)
     ints = sum(1 for r in results if isinstance(r, int) and not isinstance(r, bool))
     assert nones > 0, "nullable integer should sometimes produce None"
@@ -66,7 +66,7 @@ def test_nullable_integer(faker):
 def test_nullable_boolean(faker):
     """nullable: true on boolean type → sometimes returns None."""
     schema = {"type": "boolean", "nullable": True}
-    results = [faker.from_schema(schema) for _ in range(200)]
+    results = [faker.from_jsonschema(schema) for _ in range(200)]
     types = {type(r) for r in results}
     assert type(None) in types
     assert bool in types
@@ -81,7 +81,7 @@ def test_nullable_object(faker, repeats_for_slow):
         "required": ["x"],
         "additionalProperties": False,
     }
-    results = [faker.from_schema(schema) for _ in range(100)]
+    results = [faker.from_jsonschema(schema) for _ in range(100)]
     nones = sum(1 for r in results if r is None)
     dicts = sum(1 for r in results if isinstance(r, dict))
     assert nones > 0, "nullable object should sometimes produce None"
@@ -95,7 +95,7 @@ def test_enum_integer(faker, repeats_for_fast):
     """Enum on integer type → always one of the enum values."""
     schema = {"type": "integer", "enum": [1, 2, 3]}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert result in {1, 2, 3}
         validate(result, schema)
 
@@ -104,7 +104,7 @@ def test_enum_string(faker, repeats_for_fast):
     """Enum on string type → always one of the enum values."""
     schema = {"type": "string", "enum": ["hello", "world", "foo"]}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert result in {"hello", "world", "foo"}
         validate(result, schema)
 
@@ -114,7 +114,7 @@ def test_enum_mixed_types(faker, repeats_for_fast):
     enum_values = ["a", 1, None, True]
     schema = {"enum": enum_values}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert result in enum_values
         validate(result, schema)
 
@@ -124,7 +124,7 @@ def test_enum_with_objects(faker, repeats_for_fast):
     enum_values = [{"a": 1}, {"b": 2}]
     schema = {"enum": enum_values}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert result in enum_values
         validate(result, schema)
 
@@ -134,7 +134,7 @@ def test_enum_with_lists(faker, repeats_for_fast):
     enum_values = [[1, 2], [3, 4], [5]]
     schema = {"enum": enum_values}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert result in enum_values
         validate(result, schema)
 
@@ -143,7 +143,7 @@ def test_enum_single_value(faker, repeats_for_fast):
     """Enum with a single value → always that value (const-like)."""
     schema = {"type": "string", "enum": ["only_option"]}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert result == "only_option"
 
 
@@ -151,7 +151,7 @@ def test_enum_covers_all_values(faker):
     """Over many iterations, all enum values should appear."""
     enum_values = [1, 2, 3, 4, 5]
     schema = {"type": "integer", "enum": enum_values}
-    results = {faker.from_schema(schema) for _ in range(500)}
+    results = {faker.from_jsonschema(schema) for _ in range(500)}
     assert results == set(enum_values), f"Missing: {set(enum_values) - results}"
 
 
@@ -168,7 +168,7 @@ def test_enum_on_anyof(faker, repeats_for_fast):
         "enum": ["allowed", 42],
     }
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert result in {"allowed", 42}
 
 
@@ -179,7 +179,7 @@ def test_const_string(faker, repeats_for_fast):
     """Const with string → always returns that exact string."""
     schema = {"const": "hello"}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert result == "hello"
         validate(result, schema)
 
@@ -188,7 +188,7 @@ def test_const_integer(faker, repeats_for_fast):
     """Const with integer → always returns that integer."""
     schema = {"const": 42}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert result == 42
         validate(result, schema)
 
@@ -197,7 +197,7 @@ def test_const_null(faker, repeats_for_fast):
     """Const with null → always returns None."""
     schema = {"const": None}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert result is None
         validate(result, schema)
 
@@ -206,7 +206,7 @@ def test_const_object(faker, repeats_for_fast):
     """Const with object → always returns that exact object."""
     schema = {"const": {"key": "value"}}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert result == {"key": "value"}
         validate(result, schema)
 
@@ -215,7 +215,7 @@ def test_const_array(faker, repeats_for_fast):
     """Const with array → always returns that exact array."""
     schema = {"const": [1, 2, 3]}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert result == [1, 2, 3]
         validate(result, schema)
 
@@ -232,7 +232,7 @@ def test_const_in_properties(faker, repeats_for_fast):
         "additionalProperties": False,
     }
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert result["version"] == 2
         assert isinstance(result["name"], str)
         validate(result, schema)

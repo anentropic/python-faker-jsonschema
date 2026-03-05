@@ -2265,7 +2265,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
     def context(self, context: Context):
         self._context = context
 
-    def from_schema(self, schema: SchemaT, **context):
+    def from_jsonschema(self, schema: SchemaT, **context):
         self._context = Context(**context)
         # Store root schema for $ref resolution
         if isinstance(schema, dict):
@@ -2274,3 +2274,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             return self._from_schema(schema)
         finally:
             self._context = None
+
+    def from_schema(self, schema: SchemaT, **context):
+        # Backward-compatible alias for older callers.
+        return self.from_jsonschema(schema, **context)

@@ -495,7 +495,7 @@ def test_jsonschema_object_if_then_else_via_from_schema(faker, repeats_for_slow)
     saw_then = False
     saw_else = False
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
         assert "street_address" in result
         assert "country" in result
@@ -518,7 +518,7 @@ def test_if_then_only(faker, repeats_for_slow):
         "then": {"properties": {"y": {"type": "integer"}}},
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
         assert "x" in result
 
@@ -533,7 +533,7 @@ def test_if_else_only(faker, repeats_for_slow):
         "else": {"properties": {"z": {"type": "boolean"}}},
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
         assert "x" in result
 
@@ -553,7 +553,7 @@ def test_from_schema_basic_object(faker, repeats_for_slow):
         "additionalProperties": False,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
         assert "name" in result
         assert "age" in result
@@ -572,7 +572,7 @@ def test_from_schema_additional_properties_as_schema(faker, repeats_for_slow):
         "minProperties": 3,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
         assert "id" in result
         validate(result, schema)
@@ -598,7 +598,7 @@ def test_from_schema_nested_object(faker, repeats_for_slow):
         "additionalProperties": False,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
         assert "user" in result
         assert isinstance(result["user"], dict)
@@ -629,7 +629,7 @@ def test_from_schema_allof_objects(faker, repeats_for_slow):
         ]
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
         assert "id" in result
         assert "name" in result
@@ -649,7 +649,7 @@ def test_from_schema_pattern_properties(faker, repeats_for_slow):
         "maxProperties": 3,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
         for key in result:
             assert re.search("^S_", key), f"Key {key!r} should match pattern ^S_"
@@ -672,7 +672,7 @@ def test_anyof_multiple_types_including_objects(faker, repeats_for_slow):
         ]
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, (dict, str))
         if isinstance(result, dict):
             assert "x" in result
@@ -695,7 +695,7 @@ def test_allof_two_object_schemas(faker, repeats_for_slow):
         ]
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
         assert "a" in result
         assert "b" in result
@@ -807,7 +807,7 @@ class TestObjectEdgeCases:
             },
         }
         # Default max_depth=5, so this 6-level schema should still terminate
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
 
     def test_object_additional_properties_schema_with_constraints(
@@ -826,7 +826,7 @@ class TestObjectEdgeCases:
             "minProperties": 3,
         }
         for _ in range(repeats_for_slow):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, dict)
             assert "id" in result
             for key, val in result.items():
@@ -854,7 +854,7 @@ def test_dependencies_array_form(faker, repeats_for_slow):
         },
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
         if "credit_card" in result:
             assert "billing_address" in result
@@ -880,7 +880,7 @@ def test_dependencies_schema_form(faker, repeats_for_slow):
         },
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
         # credit_card is required, so billing_address must be present
         assert "billing_address" in result
@@ -906,7 +906,7 @@ def test_dependencies_mixed(faker, repeats_for_slow):
         },
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
         assert "b" in result  # a is required, so b must be present
         assert "c" in result  # b is required, so c must be present
@@ -945,7 +945,7 @@ def test_schema_with_all_features(faker, repeats_for_slow):
         "additionalProperties": False,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
         assert "id" in result
         assert "name" in result

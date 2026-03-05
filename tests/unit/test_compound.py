@@ -17,7 +17,7 @@ def test_oneof_string_or_integer(faker, repeats_for_slow):
         ]
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, (str, int))
         validate(result, schema)
 
@@ -41,7 +41,7 @@ def test_oneof_multiple_object_schemas(faker, repeats_for_slow):
         ]
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
         assert "kind" in result
 
@@ -78,7 +78,7 @@ def test_anyof_string_or_integer(faker, repeats_for_slow):
         ]
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, (str, int))
         validate(result, schema)
 
@@ -92,7 +92,7 @@ def test_anyof_same_type_merges_constraints(faker, repeats_for_slow):
         ]
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, int)
         validate(result, schema)
 
@@ -107,7 +107,7 @@ def test_anyof_three_schemas(faker, repeats_for_slow):
         ]
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, (str, int, bool))
         validate(result, schema)
 
@@ -141,7 +141,7 @@ def test_allof_multi_type_raises(faker):
         ]
     }
     with pytest.raises(UnsatisfiableConstraintsError, match="Cannot satisfy allOf"):
-        faker.from_schema(schema)
+        faker.from_jsonschema(schema)
 
 
 def test_allof_merged_integer_constraints(faker, repeats_for_fast):
@@ -153,7 +153,7 @@ def test_allof_merged_integer_constraints(faker, repeats_for_fast):
         ]
     }
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, int)
         assert 50 <= result <= 80
         validate(result, schema)
@@ -168,7 +168,7 @@ def test_allof_merged_string_constraints(faker, repeats_for_fast):
         ]
     }
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, str)
         assert 10 <= len(result) <= 15
         validate(result, schema)
@@ -199,7 +199,7 @@ def test_if_then_else_basic(faker):
         "else": {"maximum": 9},
     }
     for _ in range(50):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, int)
         # The result should satisfy at least one branch
         # (we can't deterministically predict which branch was chosen)
@@ -213,7 +213,7 @@ def test_if_then_only(faker, repeats_for_fast):
         "then": {"maxLength": 20},
     }
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, str)
 
 
@@ -225,7 +225,7 @@ def test_if_else_only(faker, repeats_for_fast):
         "else": {"minimum": 1},
     }
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, int)
 
 
@@ -254,7 +254,7 @@ class TestIfThenElseEdgeCases:
             },
         }
         for _ in range(repeats_for_slow):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, dict)
             assert "type" in result
 
@@ -278,7 +278,7 @@ class TestIfThenElseEdgeCases:
             "else": {"maximum": 50},
         }
         for _ in range(repeats_for_fast):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, int)
             assert result >= 0
             # With proper merge, result is at most 150 (then) or 50 (else)
@@ -304,7 +304,7 @@ class TestIfThenElseEdgeCases:
             "then": {"minLength": 5},
         }
         for _ in range(repeats_for_fast):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, str)
             assert len(result) <= 10, (
                 f"maxLength=10 was clobbered by branch merge: got len={len(result)}"
@@ -335,7 +335,7 @@ class TestIfThenElseEdgeCases:
         }
         saw_then = False
         for _ in range(repeats_for_slow):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, dict)
             assert "name" in result
             assert "age" in result, (
@@ -367,7 +367,7 @@ class TestIfThenElseEdgeCases:
             "required": ["status", "value"],
         }
         for _ in range(repeats_for_slow):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, dict)
             assert "status" in result
             assert "value" in result
@@ -389,7 +389,7 @@ class TestAnyOfEdgeCases:
             ]
         }
         for _ in range(repeats_for_slow):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, int)
             assert 0 <= result <= 100
             validate(result, schema)
@@ -411,7 +411,7 @@ class TestAnyOfEdgeCases:
             ]
         }
         for _ in range(repeats_for_slow):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, dict)
             validate(result, schema)
 
@@ -448,7 +448,7 @@ def test_discriminated_union(faker, repeats_for_slow):
         ]
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
         assert "type" in result
         if result["type"] == "dog":
@@ -485,7 +485,7 @@ def test_allof_with_dependent_schemas(faker, repeats_for_slow):
         ]
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
         assert "payment_type" in result
         # dependentSchemas should force amount when payment_type is present

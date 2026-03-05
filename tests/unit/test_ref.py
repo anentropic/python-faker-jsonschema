@@ -23,7 +23,7 @@ def test_ref_defs_basic(faker, repeats_for_fast):
         "additionalProperties": False,
     }
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
         assert isinstance(result["first_name"], str)
         assert isinstance(result["last_name"], str)
@@ -44,7 +44,7 @@ def test_ref_definitions_legacy(faker, repeats_for_fast):
         "additionalProperties": False,
     }
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, dict)
         assert isinstance(result["count"], int)
         assert result["count"] >= 0
@@ -69,7 +69,7 @@ def test_ref_nested(faker, repeats_for_slow):
         "maxItems": 3,
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, list)
         assert len(result) >= 1
         for item in result:
@@ -92,7 +92,7 @@ def test_ref_with_sibling_keywords(faker, repeats_for_fast):
         "additionalProperties": False,
     }
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result["score"], int)
         assert result["score"] >= 0
         assert result["score"] <= 100
@@ -113,7 +113,7 @@ def test_ref_unresolvable(faker):
         "required": ["x"],
     }
     with pytest.raises(UnsatisfiableConstraintsError, match="Cannot resolve"):
-        faker.from_schema(schema)
+        faker.from_jsonschema(schema)
 
 
 # ── Circular $ref detection ──────────────────────────────────────────
@@ -137,7 +137,7 @@ class TestCircularRef:
             "$ref": "#/$defs/node",
         }
         for _ in range(repeats_for_slow):
-            result = faker.from_schema(schema, max_depth=3)
+            result = faker.from_jsonschema(schema, max_depth=3)
             assert isinstance(result, dict)
 
     def test_circular_ref_required_child_raises(self, faker):
@@ -158,7 +158,7 @@ class TestCircularRef:
         }
         # Should raise UnsatisfiableConstraintsError (not RecursionError)
         with pytest.raises(UnsatisfiableConstraintsError, match="Circular"):
-            faker.from_schema(schema, max_depth=2)
+            faker.from_jsonschema(schema, max_depth=2)
 
     def test_indirect_circular_ref(self, faker):
         """A -> B -> A circular $ref should be detected."""
@@ -178,7 +178,7 @@ class TestCircularRef:
             "$ref": "#/$defs/a",
         }
         with pytest.raises(UnsatisfiableConstraintsError, match="Circular"):
-            faker.from_schema(schema, max_depth=2)
+            faker.from_jsonschema(schema, max_depth=2)
 
 
 def test_recursive_tree_structure(faker, repeats_for_slow):
@@ -202,7 +202,7 @@ def test_recursive_tree_structure(faker, repeats_for_slow):
         "$ref": "#/$defs/node",
     }
     for _ in range(repeats_for_slow):
-        result = faker.from_schema(schema, max_depth=4)
+        result = faker.from_jsonschema(schema, max_depth=4)
         assert isinstance(result, dict)
         assert "name" in result
         validate(result, schema)
