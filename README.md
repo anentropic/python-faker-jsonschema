@@ -12,3 +12,9 @@ uv run pytest
 uv run ruff check .
 just test
 ```
+
+## TODOs
+
+- can we eliminate `NoExampleFoundError` failures?
+- support other `contentEncoding` values besides `base64` e.g. `quoted-printable`
+- explore more efficient `uniqueItems` picking for large finite integer ranges

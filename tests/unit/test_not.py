@@ -3,7 +3,7 @@
 import pytest
 from jsonschema import ValidationError, validate
 
-from faker_jsonschema.provider import NoExampleFoundError
+from faker_jsonschema.provider import NoExampleFoundError, UnsatisfiableConstraintsError
 
 
 def test_jsonschema_not_constrained_string(faker, repeats_for_slow):
@@ -99,6 +99,21 @@ def test_jsonschema_not_different_type_always_passes(faker, repeats_for_slow):
             validate(result, not_schema)
     # boolean is 1/6 of types, so we should succeed most of the time
     assert successes > 10, f"Only {successes}/50 successes, expected more"
+
+
+# ── unsatisfiable not schemas ────────────────────────────────────────
+
+
+def test_not_empty_schema_raises(faker):
+    """not: {} forbids all values; should raise immediately without exhausting search budget."""
+    with pytest.raises(UnsatisfiableConstraintsError):
+        faker.from_jsonschema({"not": {}})
+
+
+def test_not_true_schema_raises(faker):
+    """not: true is equivalent to not: {} and is equally unsatisfiable."""
+    with pytest.raises(UnsatisfiableConstraintsError):
+        faker.jsonschema_not(True)
 
 
 # ── not termination edge cases ───────────────────────────────────────
