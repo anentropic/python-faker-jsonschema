@@ -145,8 +145,7 @@ class StringFormat:
                 assert self.lengths.step > 0
                 if self.length_type is not LengthType.VARIABLE_RANGE:
                     return all(
-                        len_ >= min_length
-                        and (max_length is None or len_ <= max_length)
+                        len_ >= min_length and (max_length is None or len_ <= max_length)
                         for len_ in self.lengths
                     )
                 start = self.lengths.start
@@ -155,9 +154,7 @@ class StringFormat:
                 if min_length <= start:
                     nearest_to_min = start
                 else:
-                    nearest_to_min = start + (
-                        ((min_length - start + step - 1) // step) * step
-                    )
+                    nearest_to_min = start + (((min_length - start + step - 1) // step) * step)
                 if nearest_to_min >= stop:
                     return False
                 return not (max_length is not None and nearest_to_min > max_length)
@@ -169,9 +166,7 @@ class StringFormat:
         else:
             # UNCONSTRAINED means examples can be any length, we will have
             # to brute-force search for a matching example
-            return not (
-                self.length_type is LengthType.UNCONSTRAINED and max_length == 0
-            )
+            return not (self.length_type is LengthType.UNCONSTRAINED and max_length == 0)
 
 
 class JsonVal(ObjectProxy):
@@ -266,9 +261,7 @@ def _resolve_multiple_of(left: Number, right: Number) -> Number:
         raise UnsatisfiableConstraintsError
 
 
-def _resolve_properties(
-    left: dict[str, SchemaT], right: dict[str, SchemaT]
-) -> dict[str, SchemaT]:
+def _resolve_properties(left: dict[str, SchemaT], right: dict[str, SchemaT]) -> dict[str, SchemaT]:
     properties = left.copy()
     for name, schema in right.items():
         if name in left:
@@ -278,9 +271,7 @@ def _resolve_properties(
     return properties
 
 
-def _resolve_additional_properties(
-    left: bool | SchemaT, right: bool | SchemaT
-) -> bool | SchemaT:
+def _resolve_additional_properties(left: bool | SchemaT, right: bool | SchemaT) -> bool | SchemaT:
     """Merge additionalProperties: False is strictest, schema beats True."""
     if left is False or right is False:
         return False
@@ -549,9 +540,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
     FLOAT_OFFSET: Final = float("0.{}1".format("0" * (sys.float_info.dig - 2)))
 
-    BASE_METHOD_MAP = {
-        type_name: f"jsonschema_{type_name.value.lower()}" for type_name in TypeName
-    }
+    BASE_METHOD_MAP = {type_name: f"jsonschema_{type_name.value.lower()}" for type_name in TypeName}
 
     _context: Optional["Context"] = None
 
@@ -964,11 +953,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
         # fallback: if we couldn't get a range after 100 attempts,
         # return min_value or max_value or 0
-        return (
-            min_value
-            if min_value is not None
-            else (max_value if max_value is not None else 0)
-        )
+        return min_value if min_value is not None else (max_value if max_value is not None else 0)
 
     # ── Finite-domain detection for uniqueItems ──────────────────────
 
@@ -1263,10 +1248,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
         if minimum is not None and minimum == maximum:
             # (returns early)
-            if (
-                multiple_of is not None
-                and Decimal(str(minimum)) % Decimal(str(multiple_of)) != 0
-            ):
+            if multiple_of is not None and Decimal(str(minimum)) % Decimal(str(multiple_of)) != 0:
                 raise UnsatisfiableConstraintsError(
                     f"cannot satisfy constraints multipleOf: {multiple_of}, "
                     f"minimum: {original_min}, maximum: {original_max}"
@@ -1398,8 +1380,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         schemas of that type according to the rules for `allOf`.
         """
         schema_map = {
-            k: list(v)
-            for k, v in itertools.groupby(sorted(schemas, key=type_getter), type_getter)
+            k: list(v) for k, v in itertools.groupby(sorted(schemas, key=type_getter), type_getter)
         }
         type_ = self.generator.random_element(schema_map.keys())
         type_schemas = schema_map[type_]
@@ -1420,8 +1401,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         restrictions together and return for that.
         """
         schema_map = {
-            k: list(v)
-            for k, v in itertools.groupby(sorted(schemas, key=type_getter), type_getter)
+            k: list(v) for k, v in itertools.groupby(sorted(schemas, key=type_getter), type_getter)
         }
         if len(schema_map) > 1:
             raise UnsatisfiableConstraintsError(
@@ -1431,10 +1411,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         return self._from_schema(schema)
 
     def _random_type_method(self) -> tuple[TypeName, Callable]:
-        if self.context._depth < self.context.max_depth:
-            types = BASIC_TYPES
-        else:
-            types = FLAT_TYPES
+        types = BASIC_TYPES if self.context._depth < self.context.max_depth else FLAT_TYPES
         type_ = self.generator.random_element(types)
         generator = getattr(self, self.BASE_METHOD_MAP[type_])
         if type_ in NESTED_TYPES:
@@ -1459,7 +1436,17 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
         Raises:
             NoExampleFoundError
+            UnsatisfiableConstraintsError: if the negated schema accepts
+                everything (``{}`` or ``True``), making it impossible to
+                generate any conforming value.
         """
+        # {} and True are the "accept everything" schemas; NOT {} forbids all
+        # values — there is nothing to generate.
+        if schema is True or schema == {}:
+            raise UnsatisfiableConstraintsError(
+                "'not: {}' (or 'not: true') rejects every instance; "
+                "cannot generate a conforming value."
+            )
 
         def is_valid(val) -> bool:
             try:
@@ -1493,9 +1480,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
     def _get_collection_max(self, min_: int):
         if min_ > self.context.default_collection_max:
-            return self.generator.random_int(
-                min_, min_ + self.context.default_collection_max
-            )
+            return self.generator.random_int(min_, min_ + self.context.default_collection_max)
         else:
             return self.generator.random_int(min_, self.context.default_collection_max)
 
@@ -1644,9 +1629,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             n_contains_target = min(n_contains_target, count - len(generated))
 
             # Finite-domain fast path for uniqueItems
-            contains_domain = (
-                self._enumerate_finite_domain(contains) if unique_items else None
-            )
+            contains_domain = self._enumerate_finite_domain(contains) if unique_items else None
             if unique_items and contains_domain is not None:
                 # Remove already-used values (from prefix items)
                 used = {JsonVal(v) for v in generated}
@@ -1700,21 +1683,15 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         if remaining_count > 0 and remaining_schema is not None:
             # Finite-domain fast path for uniqueItems
             remaining_domain = (
-                self._enumerate_finite_domain(remaining_schema)
-                if unique_items
-                else None
+                self._enumerate_finite_domain(remaining_schema) if unique_items else None
             )
             if unique_items and remaining_domain is not None:
                 used = {JsonVal(v) for v in generated + contains_items}
                 available = [v for v in remaining_domain if JsonVal(v) not in used]
                 # Also filter by contains budget
                 if _contains_budget is not None:
-                    non_matching = [
-                        v for v in available if not self._matches_schema(v, contains)
-                    ]
-                    matching = [
-                        v for v in available if self._matches_schema(v, contains)
-                    ]
+                    non_matching = [v for v in available if not self._matches_schema(v, contains)]
+                    matching = [v for v in available if self._matches_schema(v, contains)]
                     # Take non-matching first, then fill with matching up to budget
                     budget = max(_contains_budget, 0)
                     take_matching = min(
@@ -1777,9 +1754,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 generated = generated[:evaluated_up_to]
             elif isinstance(unevaluated_items, dict):
                 for i in range(evaluated_up_to, len(generated)):
-                    generated[i] = self.descend_into(self._from_schema)(
-                        unevaluated_items
-                    )
+                    generated[i] = self.descend_into(self._from_schema)(unevaluated_items)
 
         return generated
 
@@ -1809,11 +1784,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             raise ValueError("minProperties must be >= 0")
         if max_properties is not None and min_properties > max_properties:
             raise ValueError("maxProperties must be >= minProperties")
-        if (
-            max_properties is not None
-            and required is not None
-            and max_properties < len(required)
-        ):
+        if max_properties is not None and required is not None and max_properties < len(required):
             raise UnsatisfiableConstraintsError(
                 f"Cannot satisfy maxProperties: {max_properties} when "
                 f"there are {len(required)} properties in required list."
@@ -1869,9 +1840,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             generate_values(required_set)
 
         if max_properties is None:
-            max_properties = self._get_collection_max(
-                max(min_properties, len(required_set))
-            )
+            max_properties = self._get_collection_max(max(min_properties, len(required_set)))
 
         # generate random number of 'non-required' declared properties
         if len(generated) <= max_properties:
@@ -1942,9 +1911,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                     break
 
             # generate values — use additionalProperties schema if provided
-            _val_schema = (
-                additional_properties if isinstance(additional_properties, dict) else {}
-            )
+            _val_schema = additional_properties if isinstance(additional_properties, dict) else {}
             for name in generated_names:
                 generated[name] = self.descend_into(self._from_schema)(_val_schema)
 
@@ -1956,9 +1923,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                     for dep in deps:
                         if dep not in generated:
                             schema = _schema_for_key(dep)
-                            generated[dep] = self.descend_into(self._from_schema)(
-                                schema
-                            )
+                            generated[dep] = self.descend_into(self._from_schema)(schema)
 
         # enforce dependentSchemas: if a trigger key is present,
         # merge the dependent schema constraints into the result
@@ -1972,15 +1937,11 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                     for dep_key in dep_required:
                         if dep_key not in generated:
                             sub = dep_props.get(dep_key, {})
-                            generated[dep_key] = self.descend_into(self._from_schema)(
-                                sub
-                            )
+                            generated[dep_key] = self.descend_into(self._from_schema)(sub)
                         elif dep_key in dep_props:
                             # re-generate to match the dependent schema
                             sub = dep_props[dep_key]
-                            generated[dep_key] = self.descend_into(self._from_schema)(
-                                sub
-                            )
+                            generated[dep_key] = self.descend_into(self._from_schema)(sub)
 
         # enforce unevaluatedProperties
         if unevaluated_properties is not None:
@@ -2004,23 +1965,17 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             elif isinstance(unevaluated_properties, dict):
                 # re-generate unevaluated values to match the schema
                 for k in unevaluated:
-                    generated[k] = self.descend_into(self._from_schema)(
-                        unevaluated_properties
-                    )
+                    generated[k] = self.descend_into(self._from_schema)(unevaluated_properties)
 
         return generated
 
     @nullable_or_enum
-    def _jsonschema_basic_type_from_schema(
-        self, schema: SchemaT, type_: TypeName
-    ) -> JsonT:
+    def _jsonschema_basic_type_from_schema(self, schema: SchemaT, type_: TypeName) -> JsonT:
         method = getattr(self, self.BASE_METHOD_MAP[type_])
         return method(**method.kwargs_from_schema(schema))
 
     @nullable_or_enum
-    def _jsonschema_compound_type_from_schema(
-        self, schema: SchemaT, type_: TypeName
-    ) -> JsonT:
+    def _jsonschema_compound_type_from_schema(self, schema: SchemaT, type_: TypeName) -> JsonT:
         return getattr(self, self.BASE_METHOD_MAP[type_])(schema[type_.value])
 
     @nullable_or_enum
@@ -2040,9 +1995,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         if schema is True or schema == {}:
             return self.jsonschema_any()
         if schema is False:
-            raise UnsatisfiableConstraintsError(
-                "Boolean schema 'false' rejects all instances."
-            )
+            raise UnsatisfiableConstraintsError("Boolean schema 'false' rejects all instances.")
 
         _pushed_ref = None
 
@@ -2213,10 +2166,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         # stop to prevent infinite recursion.  We use a generous limit
         # (3x max_depth) because optional circular refs legitimately
         # recurse a few times before depth limiting kicks in.
-        if (
-            ref in self.context._ref_stack
-            and self.context._depth >= self.context.max_depth * 3
-        ):
+        if ref in self.context._ref_stack and self.context._depth >= self.context.max_depth * 3:
             raise UnsatisfiableConstraintsError(
                 f"Circular $ref {ref!r} detected at depth "
                 f"{self.context._depth} (max_depth={self.context.max_depth})."
@@ -2274,7 +2224,3 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             return self._from_schema(schema)
         finally:
             self._context = None
-
-    def from_schema(self, schema: SchemaT, **context):
-        # Backward-compatible alias for older callers.
-        return self.from_jsonschema(schema, **context)
