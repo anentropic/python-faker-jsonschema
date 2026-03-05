@@ -114,3 +114,95 @@ def test_ref_unresolvable(faker):
     }
     with pytest.raises(UnsatisfiableConstraintsError, match="Cannot resolve"):
         faker.from_schema(schema)
+
+
+# ── Circular $ref detection ──────────────────────────────────────────
+
+
+class TestCircularRef:
+    """Verify that circular $ref schemas don't cause infinite recursion."""
+
+    def test_circular_ref_optional_child(self, faker, repeats_for_slow):
+        """Circular $ref with optional child should terminate via max_depth."""
+        schema = {
+            "$defs": {
+                "node": {
+                    "type": "object",
+                    "properties": {
+                        "value": {"type": "integer"},
+                        "child": {"$ref": "#/$defs/node"},
+                    },
+                }
+            },
+            "$ref": "#/$defs/node",
+        }
+        for _ in range(repeats_for_slow):
+            result = faker.from_schema(schema, max_depth=3)
+            assert isinstance(result, dict)
+
+    def test_circular_ref_required_child_raises(self, faker):
+        """Circular $ref with required child should raise, not RecursionError."""
+        schema = {
+            "$defs": {
+                "node": {
+                    "type": "object",
+                    "properties": {
+                        "value": {"type": "integer"},
+                        "child": {"$ref": "#/$defs/node"},
+                    },
+                    "required": ["value", "child"],
+                    "additionalProperties": False,
+                }
+            },
+            "$ref": "#/$defs/node",
+        }
+        # Should raise UnsatisfiableConstraintsError (not RecursionError)
+        with pytest.raises(UnsatisfiableConstraintsError, match="Circular"):
+            faker.from_schema(schema, max_depth=2)
+
+    def test_indirect_circular_ref(self, faker):
+        """A -> B -> A circular $ref should be detected."""
+        schema = {
+            "$defs": {
+                "a": {
+                    "type": "object",
+                    "properties": {"b": {"$ref": "#/$defs/b"}},
+                    "required": ["b"],
+                },
+                "b": {
+                    "type": "object",
+                    "properties": {"a": {"$ref": "#/$defs/a"}},
+                    "required": ["a"],
+                },
+            },
+            "$ref": "#/$defs/a",
+        }
+        with pytest.raises(UnsatisfiableConstraintsError, match="Circular"):
+            faker.from_schema(schema, max_depth=2)
+
+
+def test_recursive_tree_structure(faker, repeats_for_slow):
+    """Tree structure with optional children array (recursive $ref)."""
+    schema = {
+        "$defs": {
+            "node": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "children": {
+                        "type": "array",
+                        "items": {"$ref": "#/$defs/node"},
+                        "maxItems": 3,
+                    },
+                },
+                "required": ["name"],
+                "additionalProperties": False,
+            }
+        },
+        "$ref": "#/$defs/node",
+    }
+    for _ in range(repeats_for_slow):
+        result = faker.from_schema(schema, max_depth=4)
+        assert isinstance(result, dict)
+        assert "name" in result
+        validate(result, schema)
