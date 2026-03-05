@@ -1,6 +1,6 @@
 [project]
 name = "faker-jsonschema"
-version = "0.1.0"
+version = "1.0.0a1"
 description = "Generate fake data matching a JSON schema with Faker."
 authors = [{ name = "Anentropic", email = "ego@anentropic.com" }]
 readme = "README.md"
