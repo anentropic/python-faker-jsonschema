@@ -409,3 +409,136 @@ def test_format_byte_no_valid_length(faker):
         UnsatisfiableConstraintsError, match="incompatible with format: byte"
     ):
         faker.jsonschema_string(format_="byte", min_length=5, max_length=7)
+
+
+# ── Format-specific tests ────────────────────────────────────────────
+
+
+def test_format_time(faker, repeats_for_fast):
+    """format: time → RFC 3339 full-time."""
+    schema = {"type": "string", "format": "time"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, str)
+        # Should match HH:MM:SS with optional timezone
+        assert re.match(r"\d{2}:\d{2}:\d{2}", result)
+
+
+def test_format_time_direct(faker, repeats_for_fast):
+    """Direct call for time format."""
+    for _ in range(repeats_for_fast):
+        result = faker.jsonschema_string(format_="time")
+        assert isinstance(result, str)
+        assert re.match(r"\d{2}:\d{2}:\d{2}", result)
+
+
+def test_format_duration(faker, repeats_for_fast):
+    """format: duration → ISO 8601 duration."""
+    schema = {"type": "string", "format": "duration"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, str)
+        assert result.startswith("P")
+
+
+def test_format_uri_reference(faker, repeats_for_fast):
+    """format: uri-reference → URI or relative reference."""
+    schema = {"type": "string", "format": "uri-reference"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+
+def test_format_uri_template(faker, repeats_for_fast):
+    """format: uri-template → URI with template vars."""
+    schema = {"type": "string", "format": "uri-template"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, str)
+        assert "{" in result and "}" in result
+
+
+def test_format_iri(faker, repeats_for_fast):
+    """format: iri → valid IRI (ASCII URI is valid subset)."""
+    schema = {"type": "string", "format": "iri"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+
+def test_format_iri_reference(faker, repeats_for_fast):
+    """format: iri-reference → IRI or relative IRI reference."""
+    schema = {"type": "string", "format": "iri-reference"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+
+def test_format_idn_email(faker, repeats_for_fast):
+    """format: idn-email → international email."""
+    schema = {"type": "string", "format": "idn-email"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, str)
+        assert "@" in result
+
+
+def test_format_idn_hostname(faker, repeats_for_fast):
+    """format: idn-hostname → international hostname."""
+    schema = {"type": "string", "format": "idn-hostname"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+
+def test_format_json_pointer(faker, repeats_for_fast):
+    """format: json-pointer → RFC 6901."""
+    schema = {"type": "string", "format": "json-pointer"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, str)
+        assert result.startswith("/")
+
+
+def test_format_relative_json_pointer(faker, repeats_for_fast):
+    """format: relative-json-pointer → starts with digit."""
+    schema = {"type": "string", "format": "relative-json-pointer"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, str)
+        assert result[0].isdigit()
+
+
+def test_format_regex(faker, repeats_for_fast):
+    """format: regex → a valid regular expression."""
+    schema = {"type": "string", "format": "regex"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, str)
+        # Verify it's actually a valid regex
+        re.compile(result)
+
+
+# ── contentEncoding ──────────────────────────────────────────────────
+
+
+def test_content_encoding_base64(faker, repeats_for_fast):
+    """contentEncoding: base64 → returns base64-encoded bytes."""
+    schema = {"type": "string", "contentEncoding": "base64"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, bytes)
+        # should be valid base64 (length multiple of 4)
+        assert len(result) % 4 == 0
+
+
+def test_content_encoding_base64_direct(faker, repeats_for_fast):
+    """Direct call with content_encoding='base64'."""
+    for _ in range(repeats_for_fast):
+        result = faker.jsonschema_string(content_encoding="base64")
+        assert isinstance(result, bytes)
+        assert len(result) % 4 == 0

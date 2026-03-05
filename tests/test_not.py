@@ -99,3 +99,54 @@ def test_jsonschema_not_different_type_always_passes(faker, repeats_for_slow):
             validate(result, not_schema)
     # boolean is 1/6 of types, so we should succeed most of the time
     assert successes > 10, f"Only {successes}/50 successes, expected more"
+
+
+# ── not termination edge cases ───────────────────────────────────────
+
+
+class TestNotTermination:
+    """Verify jsonschema_not terminates with various schema shapes."""
+
+    def test_not_very_broad_object(self, faker):
+        """Not with a very broad object schema should eventually terminate or raise."""
+        not_schema = {"type": "object"}
+        # This should terminate (either by finding a non-object or raising)
+        successes = 0
+        for _ in range(20):
+            try:
+                result = faker.jsonschema_not(not_schema)
+                successes += 1
+                # result must not be a dict
+                with pytest.raises(ValidationError):
+                    validate(result, not_schema)
+            except NoExampleFoundError:
+                pass
+        # Should succeed some of the time (5/7 types aren't objects)
+        assert successes > 5
+
+    def test_not_unconstrained_string(self, faker):
+        """Not a fully unconstrained string → picks a different type."""
+        not_schema = {"type": "string"}
+        successes = 0
+        for _ in range(20):
+            try:
+                faker.jsonschema_not(not_schema)
+                successes += 1
+            except NoExampleFoundError:
+                pass
+        assert successes > 5
+
+    def test_not_null(self, faker, repeats_for_slow):
+        """Not null → should never return None."""
+        not_schema = {"type": "null"}
+        schema = {"not": not_schema}
+        successes = 0
+        for _ in range(50):
+            try:
+                result = faker.from_schema(schema)
+                successes += 1
+                assert result is not None
+                validate(result, schema)
+            except NoExampleFoundError:
+                pass
+        assert successes > 10

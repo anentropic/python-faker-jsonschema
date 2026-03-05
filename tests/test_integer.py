@@ -164,3 +164,185 @@ def test_from_schema_integer_exclusive(faker, repeats_for_fast):
         assert isinstance(result, int)
         assert result > 10
         assert result < 20
+
+
+# ── Draft-06+ exclusiveMinimum / exclusiveMaximum ────────────────────
+
+
+def test_exclusive_minimum_numeric_integer(faker, repeats_for_fast):
+    """ExclusiveMinimum as number (draft-06+) for integers."""
+    schema = {"type": "integer", "exclusiveMinimum": 5, "maximum": 10}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, int)
+        assert result > 5
+        assert result <= 10
+        validate(result, schema)
+
+
+def test_exclusive_maximum_numeric_integer(faker, repeats_for_fast):
+    """ExclusiveMaximum as number (draft-06+) for integers."""
+    schema = {"type": "integer", "minimum": 5, "exclusiveMaximum": 10}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, int)
+        assert result >= 5
+        assert result < 10
+        validate(result, schema)
+
+
+def test_exclusive_both_numeric_integer(faker, repeats_for_fast):
+    """Both exclusiveMinimum and exclusiveMaximum as numbers."""
+    schema = {"type": "integer", "exclusiveMinimum": 0, "exclusiveMaximum": 5}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, int)
+        assert 0 < result < 5
+        validate(result, schema)
+
+
+def test_exclusive_direct_call_integer(faker, repeats_for_fast):
+    """Direct call with exclusive_minimum/exclusive_maximum params."""
+    for _ in range(repeats_for_fast):
+        result = faker.jsonschema_integer(exclusive_minimum=0, exclusive_maximum=10)
+        assert isinstance(result, int)
+        assert 0 < result < 10
+
+
+# ── Negative exclusive bounds ────────────────────────────────────────
+
+
+class TestNegativeExclusiveBoundsInteger:
+    """Verify exclusive bounds work correctly for negative integer values."""
+
+    def test_negative_exclusive_minimum_integer(self, faker, repeats_for_fast):
+        """ExclusiveMinimum with negative value: result must be > boundary."""
+        schema = {"type": "integer", "exclusiveMinimum": -5, "maximum": 0}
+        for _ in range(repeats_for_fast):
+            result = faker.from_schema(schema)
+            assert isinstance(result, int)
+            assert result > -5, f"Expected > -5, got {result}"
+            assert result <= 0
+            validate(result, schema)
+
+    def test_negative_exclusive_maximum_integer(self, faker, repeats_for_fast):
+        """ExclusiveMaximum with negative value: result must be < boundary."""
+        schema = {"type": "integer", "minimum": -10, "exclusiveMaximum": -5}
+        for _ in range(repeats_for_fast):
+            result = faker.from_schema(schema)
+            assert isinstance(result, int)
+            assert result >= -10
+            assert result < -5, f"Expected < -5, got {result}"
+            validate(result, schema)
+
+    def test_negative_both_exclusive_integer(self, faker, repeats_for_fast):
+        """Both exclusive bounds negative: -10 < result < -1."""
+        schema = {
+            "type": "integer",
+            "exclusiveMinimum": -10,
+            "exclusiveMaximum": -1,
+        }
+        for _ in range(repeats_for_fast):
+            result = faker.from_schema(schema)
+            assert isinstance(result, int)
+            assert -10 < result < -1, f"Expected -10 < x < -1, got {result}"
+            validate(result, schema)
+
+    def test_negative_exclusive_min_direct_call(self, faker, repeats_for_fast):
+        """Direct call with negative exclusive_minimum."""
+        for _ in range(repeats_for_fast):
+            result = faker.jsonschema_integer(
+                exclusive_minimum=-20, exclusive_maximum=-10
+            )
+            assert isinstance(result, int)
+            assert -20 < result < -10
+
+    def test_negative_exclusive_draft04_form(self, faker, repeats_for_fast):
+        """Draft-04 boolean exclusiveMin/Max with negative values."""
+        for _ in range(repeats_for_fast):
+            result = faker.jsonschema_integer(
+                minimum=-10, maximum=-5, exclusive_min=True, exclusive_max=True
+            )
+            assert isinstance(result, int)
+            assert -10 < result < -5
+
+    def test_zero_straddling_exclusive_bounds(self, faker, repeats_for_fast):
+        """Exclusive bounds straddling zero: -3 < result < 3."""
+        schema = {
+            "type": "integer",
+            "exclusiveMinimum": -3,
+            "exclusiveMaximum": 3,
+        }
+        for _ in range(repeats_for_fast):
+            result = faker.from_schema(schema)
+            assert isinstance(result, int)
+            assert -3 < result < 3
+            validate(result, schema)
+
+
+# ── _safe_random_int edge cases ──────────────────────────────────────
+
+
+class TestSafeRandomInt:
+    """Edge cases for _safe_random_int that previously had unbounded recursion."""
+
+    def test_both_none(self, faker, provider, repeats_for_fast):
+        """Both min and max None should always terminate."""
+        for _ in range(repeats_for_fast):
+            result = provider._safe_random_int(None, None)
+            assert isinstance(result, int)
+
+    def test_equal_values(self, faker, provider, repeats_for_fast):
+        """Equal min and max should return that value."""
+        for _ in range(repeats_for_fast):
+            result = provider._safe_random_int(5, 5)
+            assert result == 5
+
+    def test_negative_range(self, faker, provider, repeats_for_fast):
+        """Negative min, None max should produce reasonable results."""
+        for _ in range(repeats_for_fast):
+            result = provider._safe_random_int(-100, None)
+            assert isinstance(result, int)
+            assert result >= -100
+
+    def test_none_min(self, faker, provider, repeats_for_fast):
+        """None min, specified max should produce values <= max."""
+        for _ in range(repeats_for_fast):
+            result = provider._safe_random_int(None, 50)
+            assert isinstance(result, int)
+            assert result <= 50
+
+
+# ── multipleOf edge cases ────────────────────────────────────────────
+
+
+class TestMultipleOfEdgeCasesInteger:
+    """multipleOf with tricky integer constraint combinations."""
+
+    def test_multiple_of_negative(self, faker, repeats_for_fast):
+        """MultipleOf with negative min/max."""
+        for _ in range(repeats_for_fast):
+            result = faker.jsonschema_integer(minimum=-30, maximum=-10, multiple_of=5)
+            assert isinstance(result, int)
+            assert -30 <= result <= -10
+            assert result % 5 == 0
+
+    def test_multiple_of_with_exclusive_bounds(self, faker, repeats_for_fast):
+        """MultipleOf combined with exclusive bounds."""
+        schema = {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "exclusiveMaximum": 20,
+            "multipleOf": 5,
+        }
+        for _ in range(repeats_for_fast):
+            result = faker.from_schema(schema)
+            assert isinstance(result, int)
+            assert 0 < result < 20
+            assert result % 5 == 0
+            validate(result, schema)
+
+    def test_multiple_of_unsatisfiable_raises(self, faker):
+        """MultipleOf that can't be satisfied raises UnsatisfiableConstraintsError."""
+        with pytest.raises(UnsatisfiableConstraintsError):
+            faker.jsonschema_integer(minimum=1, maximum=4, multiple_of=5)

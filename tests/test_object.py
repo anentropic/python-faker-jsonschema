@@ -719,3 +719,236 @@ def test_jsonschema_object_pattern_properties_unmatchable(faker, repeats_for_slo
             min_properties=0,
         )
         assert isinstance(result, dict)
+
+
+# ── Object generation edge cases ─────────────────────────────────────
+
+
+class TestObjectEdgeCases:
+    """Object generation edge cases and termination checks."""
+
+    def test_dependent_required_adds_beyond_max_properties(
+        self, faker, repeats_for_slow
+    ):
+        """
+        DependentRequired may add properties beyond maxProperties.
+
+        This is semantically correct: the generated object must satisfy
+        dependentRequired even if that means exceeding maxProperties intent.
+        Just verifying it doesn't crash.
+        """
+        for _ in range(repeats_for_slow):
+            result = faker.jsonschema_object(
+                properties={
+                    "a": {"type": "string"},
+                    "b": {"type": "string"},
+                    "c": {"type": "string"},
+                },
+                required=["a"],
+                dependent_required={"a": ["b", "c"]},
+                max_properties=2,
+            )
+            assert isinstance(result, dict)
+            assert "a" in result
+            # dependentRequired forces b and c to be present
+            assert "b" in result
+            assert "c" in result
+
+    def test_pattern_properties_with_hard_pattern(self, faker, repeats_for_slow):
+        """Pattern properties with a complex regex should terminate."""
+        for _ in range(repeats_for_slow):
+            result = faker.jsonschema_object(
+                pattern_properties={
+                    "^[a-z]{2,4}_[0-9]+$": {"type": "integer"},
+                },
+                additional_properties=True,
+                min_properties=1,
+            )
+            assert isinstance(result, dict)
+
+    def test_deeply_nested_objects_terminate(self, faker):
+        """6 levels of nesting should terminate via max_depth."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "l1": {
+                    "type": "object",
+                    "properties": {
+                        "l2": {
+                            "type": "object",
+                            "properties": {
+                                "l3": {
+                                    "type": "object",
+                                    "properties": {
+                                        "l4": {
+                                            "type": "object",
+                                            "properties": {
+                                                "l5": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "l6": {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "val": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                        }
+                                                    },
+                                                }
+                                            },
+                                        }
+                                    },
+                                }
+                            },
+                        }
+                    },
+                }
+            },
+        }
+        # Default max_depth=5, so this 6-level schema should still terminate
+        result = faker.from_schema(schema)
+        assert isinstance(result, dict)
+
+    def test_object_additional_properties_schema_with_constraints(
+        self, faker, repeats_for_slow
+    ):
+        """AdditionalProperties as a constrained schema."""
+        schema = {
+            "type": "object",
+            "properties": {"id": {"type": "integer"}},
+            "required": ["id"],
+            "additionalProperties": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100,
+            },
+            "minProperties": 3,
+        }
+        for _ in range(repeats_for_slow):
+            result = faker.from_schema(schema)
+            assert isinstance(result, dict)
+            assert "id" in result
+            for key, val in result.items():
+                if key != "id":
+                    assert isinstance(val, int)
+                    assert 0 <= val <= 100
+            validate(result, schema)
+
+
+# ── Legacy dependencies keyword ──────────────────────────────────────
+
+
+def test_dependencies_array_form(faker, repeats_for_slow):
+    """Legacy dependencies with array values → dependentRequired."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "credit_card": {"type": "integer"},
+            "billing_address": {"type": "string"},
+        },
+        "required": ["name"],
+        "dependencies": {
+            "credit_card": ["billing_address"],
+        },
+    }
+    for _ in range(repeats_for_slow):
+        result = faker.from_schema(schema)
+        assert isinstance(result, dict)
+        if "credit_card" in result:
+            assert "billing_address" in result
+        validate(result, schema)
+
+
+def test_dependencies_schema_form(faker, repeats_for_slow):
+    """Legacy dependencies with schema values → dependentSchemas."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "credit_card": {"type": "integer"},
+        },
+        "required": ["name", "credit_card"],
+        "dependencies": {
+            "credit_card": {
+                "properties": {
+                    "billing_address": {"type": "string"},
+                },
+                "required": ["billing_address"],
+            }
+        },
+    }
+    for _ in range(repeats_for_slow):
+        result = faker.from_schema(schema)
+        assert isinstance(result, dict)
+        # credit_card is required, so billing_address must be present
+        assert "billing_address" in result
+        validate(result, schema)
+
+
+def test_dependencies_mixed(faker, repeats_for_slow):
+    """Legacy dependencies with both array and schema values."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "a": {"type": "string"},
+            "b": {"type": "string"},
+            "c": {"type": "integer"},
+        },
+        "required": ["a", "b"],
+        "dependencies": {
+            "a": ["b"],  # array form
+            "b": {  # schema form
+                "properties": {"c": {"type": "integer"}},
+                "required": ["c"],
+            },
+        },
+    }
+    for _ in range(repeats_for_slow):
+        result = faker.from_schema(schema)
+        assert isinstance(result, dict)
+        assert "b" in result  # a is required, so b must be present
+        assert "c" in result  # b is required, so c must be present
+        validate(result, schema)
+
+
+# ── Complex real-world object schemas ────────────────────────────────
+
+
+def test_schema_with_all_features(faker, repeats_for_slow):
+    """Schema combining multiple advanced features."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "id": {"type": "integer", "minimum": 1},
+            "name": {"type": "string", "minLength": 1, "maxLength": 100},
+            "email": {"type": "string", "format": "email"},
+            "age": {
+                "type": ["integer", "null"],
+                "minimum": 0,
+                "maximum": 150,
+            },
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 0,
+                "maxItems": 5,
+                "uniqueItems": True,
+            },
+            "metadata": {
+                "type": "object",
+                "additionalProperties": {"type": "string"},
+            },
+        },
+        "required": ["id", "name"],
+        "additionalProperties": False,
+    }
+    for _ in range(repeats_for_slow):
+        result = faker.from_schema(schema)
+        assert isinstance(result, dict)
+        assert "id" in result
+        assert "name" in result
+        assert isinstance(result["id"], int)
+        assert result["id"] >= 1
+        validate(result, schema)

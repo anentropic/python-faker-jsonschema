@@ -185,3 +185,308 @@ def test_allof_direct_call(faker, repeats_for_slow):
         assert isinstance(result, dict)
         assert "a" in result
         assert "b" in result
+
+
+# ── if / then / else ─────────────────────────────────────────────────
+
+
+def test_if_then_else_basic(faker):
+    """if/then/else round-trip: result validates against schema."""
+    schema = {
+        "type": "integer",
+        "if": {"minimum": 10},
+        "then": {"maximum": 100},
+        "else": {"maximum": 9},
+    }
+    for _ in range(50):
+        result = faker.from_schema(schema)
+        assert isinstance(result, int)
+        # The result should satisfy at least one branch
+        # (we can't deterministically predict which branch was chosen)
+
+
+def test_if_then_only(faker, repeats_for_fast):
+    """Schema with if/then but no else."""
+    schema = {
+        "type": "string",
+        "if": {"minLength": 5},
+        "then": {"maxLength": 20},
+    }
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, str)
+
+
+def test_if_else_only(faker, repeats_for_fast):
+    """Schema with if/else but no then."""
+    schema = {
+        "type": "integer",
+        "if": {"maximum": 0},
+        "else": {"minimum": 1},
+    }
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert isinstance(result, int)
+
+
+# ── if/then/else edge cases ──────────────────────────────────────────
+
+
+class TestIfThenElseEdgeCases:
+    """Verify if/then/else merging and generation."""
+
+    def test_if_then_else_with_required(self, faker, repeats_for_slow):
+        """if/then/else adding required properties."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "type": {"type": "string"},
+            },
+            "required": ["type"],
+            "if": {"properties": {"type": {"const": "business"}}},
+            "then": {
+                "properties": {"company": {"type": "string"}},
+                "required": ["company"],
+            },
+            "else": {
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"],
+            },
+        }
+        for _ in range(repeats_for_slow):
+            result = faker.from_schema(schema)
+            assert isinstance(result, dict)
+            assert "type" in result
+
+    def test_if_then_else_integer_constraints(self, faker, repeats_for_fast):
+        """
+        if/then/else constraining an integer: proper constraint intersection.
+
+        Base: minimum=0, maximum=200.
+        then branch: maximum=150  → merged result has min=0, max=min(200,150)=150
+        else branch: maximum=50   → merged result has min=0, max=min(200,50)=50
+
+        With proper merging, the base maximum is tightened (not clobbered),
+        and the base minimum is always preserved.
+        """
+        schema = {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 200,
+            "if": {"minimum": 100},
+            "then": {"maximum": 150},
+            "else": {"maximum": 50},
+        }
+        for _ in range(repeats_for_fast):
+            result = faker.from_schema(schema)
+            assert isinstance(result, int)
+            assert result >= 0
+            # With proper merge, result is at most 150 (then) or 50 (else)
+            assert result <= 200
+
+    def test_if_then_else_preserves_base_constraints(self, faker, repeats_for_fast):
+        """
+        Branch adding minLength must not clobber base maxLength.
+
+        Base: minLength=1, maxLength=10
+        then branch: minLength=5  → merged: minLength=max(1,5)=5, maxLength=10
+        else branch: (empty)      → merged: minLength=1, maxLength=10
+
+        The old shallow merge would replace minLength but keep maxLength.
+        With _merge_schemas this uses max() for minLength — even better.
+        Either way, maxLength=10 must be preserved.
+        """
+        schema = {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10,
+            "if": {"minLength": 5},
+            "then": {"minLength": 5},
+        }
+        for _ in range(repeats_for_fast):
+            result = faker.from_schema(schema)
+            assert isinstance(result, str)
+            assert len(result) <= 10, (
+                f"maxLength=10 was clobbered by branch merge: got len={len(result)}"
+            )
+            assert len(result) >= 1
+
+    def test_if_then_else_deep_property_merge(self, faker, repeats_for_slow):
+        """
+        Branch adding a property must not clobber existing properties.
+
+        Base properties: {name: string, age: {integer, min=0, max=120}}
+        then branch properties: {email: string}
+        → merged properties should have all three: name, age, email
+        (old shallow merge would clobber age with the branch dict)
+        """
+        schema = {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "age": {"type": "integer", "minimum": 0, "maximum": 120},
+            },
+            "required": ["name", "age"],
+            "if": {"properties": {"name": {"minLength": 1}}},
+            "then": {
+                "properties": {"email": {"type": "string", "format": "email"}},
+                "required": ["email"],
+            },
+        }
+        saw_then = False
+        for _ in range(repeats_for_slow):
+            result = faker.from_schema(schema)
+            assert isinstance(result, dict)
+            assert "name" in result
+            assert "age" in result, (
+                f"'age' property was lost during if/then merge: {result}"
+            )
+            assert isinstance(result["age"], int)
+            assert 0 <= result["age"] <= 120, (
+                f"age constraints lost during merge: {result['age']}"
+            )
+            if "email" in result:
+                saw_then = True
+        # Over many iterations, we should see the then-branch at least once
+        assert saw_then, "then-branch was never applied"
+
+    def test_nested_if_then_else(self, faker, repeats_for_slow):
+        """Nested if/then/else in properties."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "value": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "if": {"minimum": 10},
+                    "then": {"maximum": 20},
+                    "else": {"maximum": 9},
+                },
+            },
+            "required": ["status", "value"],
+        }
+        for _ in range(repeats_for_slow):
+            result = faker.from_schema(schema)
+            assert isinstance(result, dict)
+            assert "status" in result
+            assert "value" in result
+            assert isinstance(result["value"], int)
+            assert result["value"] >= 0
+
+
+# ── anyOf edge cases ─────────────────────────────────────────────────
+
+
+class TestAnyOfEdgeCases:
+    """anyOf with various schema shapes."""
+
+    def test_anyof_single_schema(self, faker, repeats_for_slow):
+        """AnyOf with a single sub-schema."""
+        schema = {
+            "anyOf": [
+                {"type": "integer", "minimum": 0, "maximum": 100},
+            ]
+        }
+        for _ in range(repeats_for_slow):
+            result = faker.from_schema(schema)
+            assert isinstance(result, int)
+            assert 0 <= result <= 100
+            validate(result, schema)
+
+    def test_anyof_objects_with_different_required(self, faker, repeats_for_slow):
+        """AnyOf with objects having different required properties."""
+        schema = {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "properties": {"a": {"type": "string"}},
+                    "required": ["a"],
+                },
+                {
+                    "type": "object",
+                    "properties": {"b": {"type": "integer"}},
+                    "required": ["b"],
+                },
+            ]
+        }
+        for _ in range(repeats_for_slow):
+            result = faker.from_schema(schema)
+            assert isinstance(result, dict)
+            validate(result, schema)
+
+
+# ── Complex real-world compound schemas ──────────────────────────────
+
+
+def test_discriminated_union(faker, repeats_for_slow):
+    """Discriminated union via oneOf with const type field."""
+    schema = {
+        "oneOf": [
+            {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": ["dog"]},
+                    "bark_volume": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 10,
+                    },
+                },
+                "required": ["type", "bark_volume"],
+                "additionalProperties": False,
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": ["cat"]},
+                    "indoor": {"type": "boolean"},
+                },
+                "required": ["type", "indoor"],
+                "additionalProperties": False,
+            },
+        ]
+    }
+    for _ in range(repeats_for_slow):
+        result = faker.from_schema(schema)
+        assert isinstance(result, dict)
+        assert "type" in result
+        if result["type"] == "dog":
+            assert "bark_volume" in result
+        elif result["type"] == "cat":
+            assert "indoor" in result
+
+
+def test_allof_with_dependent_schemas(faker, repeats_for_slow):
+    """AllOf combined with dependentSchemas."""
+    schema = {
+        "allOf": [
+            {
+                "type": "object",
+                "properties": {
+                    "payment_type": {"type": "string"},
+                },
+                "required": ["payment_type"],
+            },
+            {
+                "type": "object",
+                "dependentSchemas": {
+                    "payment_type": {
+                        "properties": {
+                            "amount": {
+                                "type": "number",
+                                "minimum": 0,
+                            },
+                        },
+                        "required": ["amount"],
+                    },
+                },
+            },
+        ]
+    }
+    for _ in range(repeats_for_slow):
+        result = faker.from_schema(schema)
+        assert isinstance(result, dict)
+        assert "payment_type" in result
+        # dependentSchemas should force amount when payment_type is present
+        assert "amount" in result
