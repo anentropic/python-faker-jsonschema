@@ -36,3 +36,12 @@ def repeats_for_fast(record_testsuite_property):
     count = int(os.getenv("REPEATS_FAST", _DEFAULT_REPEATS_FAST))
     record_testsuite_property("REPEATS_FAST", count)
     return count
+
+
+@pytest.fixture()
+def provider(faker):
+    """Get the JSONSchemaProvider instance from the faker."""
+    for p in faker.providers:
+        if isinstance(p, JSONSchemaProvider):
+            return p
+    pytest.fail("JSONSchemaProvider not found")

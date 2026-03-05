@@ -170,3 +170,69 @@ def test_enum_on_anyof(faker, repeats_for_fast):
     for _ in range(repeats_for_fast):
         result = faker.from_schema(schema)
         assert result in {"allowed", 42}
+
+
+# ── const (draft-06+) ────────────────────────────────────────────────
+
+
+def test_const_string(faker, repeats_for_fast):
+    """Const with string → always returns that exact string."""
+    schema = {"const": "hello"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert result == "hello"
+        validate(result, schema)
+
+
+def test_const_integer(faker, repeats_for_fast):
+    """Const with integer → always returns that integer."""
+    schema = {"const": 42}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert result == 42
+        validate(result, schema)
+
+
+def test_const_null(faker, repeats_for_fast):
+    """Const with null → always returns None."""
+    schema = {"const": None}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert result is None
+        validate(result, schema)
+
+
+def test_const_object(faker, repeats_for_fast):
+    """Const with object → always returns that exact object."""
+    schema = {"const": {"key": "value"}}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert result == {"key": "value"}
+        validate(result, schema)
+
+
+def test_const_array(faker, repeats_for_fast):
+    """Const with array → always returns that exact array."""
+    schema = {"const": [1, 2, 3]}
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert result == [1, 2, 3]
+        validate(result, schema)
+
+
+def test_const_in_properties(faker, repeats_for_fast):
+    """Const values in object properties."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "version": {"const": 2},
+            "name": {"type": "string"},
+        },
+        "required": ["version", "name"],
+        "additionalProperties": False,
+    }
+    for _ in range(repeats_for_fast):
+        result = faker.from_schema(schema)
+        assert result["version"] == 2
+        assert isinstance(result["name"], str)
+        validate(result, schema)
