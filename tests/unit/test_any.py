@@ -48,7 +48,7 @@ def test_from_schema_empty_schema(faker, repeats_for_fast):
     """from_schema({}) should dispatch to jsonschema_any."""
     schema = {}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         # empty schema validates anything
         validate(result, schema)
 
@@ -57,7 +57,7 @@ def test_from_schema_no_type_key(faker, repeats_for_fast):
     """Schema without 'type' and without compound keys → any."""
     schema = {"description": "anything goes"}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         # should produce something and not crash
         assert (
             result is not None or result is None
@@ -72,7 +72,7 @@ def test_type_array_string_null(faker, repeats_for_fast):
     schema = {"type": ["string", "null"]}
     types_seen = set()
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         if result is None:
             types_seen.add("null")
         else:
@@ -86,7 +86,7 @@ def test_type_array_integer_number(faker, repeats_for_fast):
     """{"type": ["integer", "number"]} → int or float."""
     schema = {"type": ["integer", "number"]}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, (int, float))
         validate(result, schema)
 
@@ -95,7 +95,7 @@ def test_type_array_single(faker, repeats_for_fast):
     """{"type": ["boolean"]} → always bool."""
     schema = {"type": ["boolean"]}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, bool)
         validate(result, schema)
 
@@ -104,7 +104,7 @@ def test_type_array_with_constraints(faker, repeats_for_fast):
     """Type array with constraints applies to the chosen type."""
     schema = {"type": ["integer", "null"], "minimum": 5, "maximum": 10}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         if result is not None:
             assert isinstance(result, int)
             assert 5 <= result <= 10
@@ -118,19 +118,19 @@ def test_boolean_schema_true(faker, repeats_for_fast):
     """Schema True → accepts anything (like empty schema)."""
     schema = True
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         validate(result, schema)
 
 
 def test_boolean_schema_false(faker):
     """Schema False → always unsatisfiable."""
     with pytest.raises(UnsatisfiableConstraintsError):
-        faker.from_schema(False)
+        faker.from_jsonschema(False)
 
 
 def test_empty_schema_as_true(faker, repeats_for_fast):
     """Empty dict schema {} behaves like True."""
     schema = {}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         validate(result, schema)

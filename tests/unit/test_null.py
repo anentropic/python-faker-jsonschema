@@ -19,7 +19,7 @@ def test_from_schema_null(faker, repeats_for_fast):
     """from_schema with type null → always None."""
     schema = {"type": "null"}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert result is None
         validate(result, schema)
 
@@ -28,6 +28,6 @@ def test_from_schema_null_with_enum(faker, repeats_for_fast):
     """Null type with enum containing only None."""
     schema = {"type": "null", "enum": [None]}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert result is None
         validate(result, schema)

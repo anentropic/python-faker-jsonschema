@@ -12,7 +12,7 @@ def test_jsonschema_boolean_from_schema(faker, repeats_for_fast):
     """from_schema round-trip for boolean type."""
     schema = {"type": "boolean"}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, bool)
         validate(result, schema)
 

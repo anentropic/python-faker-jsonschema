@@ -161,7 +161,7 @@ def test_from_schema_number_round_trip(faker, repeats_for_fast, minimum, maximum
     if maximum is not None:
         schema["maximum"] = maximum
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, (float, int))
         validate(result, schema)
 
@@ -170,7 +170,7 @@ def test_from_schema_number_multiple_of(faker, repeats_for_fast):
     """from_schema round trip with multipleOf."""
     schema = {"type": "number", "minimum": 0, "maximum": 100, "multipleOf": 2.5}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, (float, int))
         validate(result, schema)
 
@@ -182,7 +182,7 @@ def test_exclusive_minimum_numeric_number(faker, repeats_for_fast):
     """ExclusiveMinimum as number (draft-06+) for floats."""
     schema = {"type": "number", "exclusiveMinimum": 1.0, "maximum": 5.0}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, float)
         assert result > 1.0
         assert result <= 5.0
@@ -193,7 +193,7 @@ def test_exclusive_maximum_numeric_number(faker, repeats_for_fast):
     """ExclusiveMaximum as number (draft-06+) for floats."""
     schema = {"type": "number", "minimum": 1.0, "exclusiveMaximum": 5.0}
     for _ in range(repeats_for_fast):
-        result = faker.from_schema(schema)
+        result = faker.from_jsonschema(schema)
         assert isinstance(result, float)
         assert result >= 1.0
         assert result < 5.0
@@ -218,7 +218,7 @@ class TestNegativeExclusiveBoundsNumber:
         """ExclusiveMinimum with negative float: result must be > boundary."""
         schema = {"type": "number", "exclusiveMinimum": -5.0, "maximum": 0.0}
         for _ in range(repeats_for_fast):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, float)
             assert result > -5.0, f"Expected > -5.0, got {result}"
             assert result <= 0.0
@@ -228,7 +228,7 @@ class TestNegativeExclusiveBoundsNumber:
         """ExclusiveMaximum with negative float: result must be < boundary."""
         schema = {"type": "number", "minimum": -10.0, "exclusiveMaximum": -5.0}
         for _ in range(repeats_for_fast):
-            result = faker.from_schema(schema)
+            result = faker.from_jsonschema(schema)
             assert isinstance(result, float)
             assert result >= -10.0
             assert result < -5.0, f"Expected < -5.0, got {result}"
