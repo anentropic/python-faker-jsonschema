@@ -6,9 +6,7 @@ from typing import Final
 def _validate_numeric(op, other):
     # TODO: alternatively `return NotImplemented`
     if not isinstance(other, (int, float, Decimal)):
-        raise TypeError(
-            f"'{op}' not supported between instances of 'int' and '{type(other)}'"
-        )
+        raise TypeError(f"'{op}' not supported between instances of 'int' and '{type(other)}'")
 
 
 class IntInf(int):

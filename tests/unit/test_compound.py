@@ -338,13 +338,9 @@ class TestIfThenElseEdgeCases:
             result = faker.from_jsonschema(schema)
             assert isinstance(result, dict)
             assert "name" in result
-            assert "age" in result, (
-                f"'age' property was lost during if/then merge: {result}"
-            )
+            assert "age" in result, f"'age' property was lost during if/then merge: {result}"
             assert isinstance(result["age"], int)
-            assert 0 <= result["age"] <= 120, (
-                f"age constraints lost during merge: {result['age']}"
-            )
+            assert 0 <= result["age"] <= 120, f"age constraints lost during merge: {result['age']}"
             if "email" in result:
                 saw_then = True
         # Over many iterations, we should see the then-branch at least once

@@ -1,7 +1,7 @@
 import itertools
 
 import pytest
-from jsonschema import validate
+from jsonschema import Draft7Validator, validate
 
 
 @pytest.mark.parametrize(
@@ -44,9 +44,7 @@ def test_jsonschema_array_items(faker, repeats_for_slow, schema):
     "min_items,max_items,unique_items",
     itertools.product((0, 3, 5, 11), (None, 15, 20, 25), (True, False)),
 )
-def test_jsonschema_array_length(
-    faker, repeats_for_slow, min_items, max_items, unique_items
-):
+def test_jsonschema_array_length(faker, repeats_for_slow, min_items, max_items, unique_items):
     for _ in range(repeats_for_slow):
         result = faker.jsonschema_array(
             items={"type": "number"},
@@ -173,9 +171,7 @@ class TestArrayUniqueItemsEdgeCases:
             result = faker.from_jsonschema(schema)
             assert isinstance(result, list)
             assert len(result) == 2, f"Expected 2 items, got {len(result)}: {result}"
-            assert set(result) == {True, False}, (
-                f"Expected {{True, False}}, got {result}"
-            )
+            assert set(result) == {True, False}, f"Expected {{True, False}}, got {result}"
             validate(result, schema)
 
     def test_unique_small_enum(self, faker, repeats_for_slow):
@@ -250,9 +246,7 @@ class TestArrayUniqueItemsEdgeCases:
             assert isinstance(result, list)
             assert len(result) == 3, f"Expected 3 items, got {result}"
             # Check uniqueness by converting to set of JsonVal-like wrappers
-            assert len({repr(x) for x in result}) == 3, (
-                f"Expected 3 unique items, got {result}"
-            )
+            assert len({repr(x) for x in result}) == 3, f"Expected 3 unique items, got {result}"
 
     def test_unique_domain_cap(self, faker, repeats_for_slow):
         """When minItems exceeds finite domain size, count is capped."""
@@ -385,6 +379,44 @@ def test_additional_items_schema(faker, repeats_for_slow):
             assert isinstance(item, bool)
 
 
+def test_additional_items_from_jsonschema(faker, repeats_for_slow):
+    """Draft-04 list-form items + additionalItems via from_jsonschema round-trip."""
+    schema = {
+        "type": "array",
+        "items": [{"type": "string"}, {"type": "integer"}],
+        "additionalItems": {"type": "boolean"},
+        "minItems": 4,
+        "maxItems": 5,
+    }
+    v = Draft7Validator(schema)
+    for _ in range(repeats_for_slow):
+        result = faker.from_jsonschema(schema)
+        assert isinstance(result, list)
+        assert 4 <= len(result) <= 5
+        assert isinstance(result[0], str)
+        assert isinstance(result[1], int) and not isinstance(result[1], bool)
+        for item in result[2:]:
+            assert isinstance(item, bool)
+        v.validate(result)
+
+
+def test_additional_items_false_from_jsonschema(faker, repeats_for_slow):
+    """Draft-04 list-form items + additionalItems: false → exactly prefix length."""
+    schema = {
+        "type": "array",
+        "items": [{"type": "string"}, {"type": "integer"}],
+        "additionalItems": False,
+    }
+    v = Draft7Validator(schema)
+    for _ in range(repeats_for_slow):
+        result = faker.from_jsonschema(schema)
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert isinstance(result[0], str)
+        assert isinstance(result[1], int) and not isinstance(result[1], bool)
+        v.validate(result)
+
+
 def test_array_zero_max_items(faker, repeats_for_slow):
     """maxItems: 0 should always produce empty array."""
     schema = {
@@ -469,9 +501,7 @@ def test_contains_with_tight_constraints(faker, repeats_for_slow):
         result = faker.from_jsonschema(schema)
         assert isinstance(result, list)
         matching = sum(1 for x in result if isinstance(x, int) and 90 <= x <= 100)
-        assert matching >= 2, (
-            f"Expected >= 2 contains matches, got {matching} in {result}"
-        )
+        assert matching >= 2, f"Expected >= 2 contains matches, got {matching} in {result}"
         validate(result, schema)
 
 
@@ -489,9 +519,7 @@ def test_contains_tight_maxitems_equals_mincontains(faker, repeats_for_slow):
         assert isinstance(result, list)
         assert len(result) == 3
         matching = sum(1 for x in result if isinstance(x, str) and len(x) >= 5)
-        assert matching >= 3, (
-            f"Expected all 3 items to match contains, got {matching}: {result}"
-        )
+        assert matching >= 3, f"Expected all 3 items to match contains, got {matching}: {result}"
         validate(result, schema)
 
 
@@ -544,9 +572,7 @@ def test_contains_disjoint_from_items(faker, repeats_for_slow):
         assert isinstance(result, list)
         assert all(isinstance(x, str) for x in result)
         long_strings = sum(1 for x in result if len(x) >= 20)
-        assert long_strings >= 2, (
-            f"Expected >= 2 long strings, got {long_strings}: {result}"
-        )
+        assert long_strings >= 2, f"Expected >= 2 long strings, got {long_strings}: {result}"
         validate(result, schema)
 
 

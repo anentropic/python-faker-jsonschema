@@ -84,6 +84,26 @@ When `items` is present alongside `prefixItems`, it acts as the schema for all i
 
 The first three positions are fixed by `prefixItems`; the remaining positions (here two extra) are generated from `items`.
 
+### `items` as array + `additionalItems` (draft-04 – 2019-09)
+
+Before draft 2020-12, tuple validation used `items` as an array of schemas and `additionalItems` for any items beyond that tuple:
+
+```json
+{
+  "type": "array",
+  "items": [{"type": "string"}, {"type": "integer"}],
+  "additionalItems": {"type": "boolean"},
+  "minItems": 4,
+  "maxItems": 5
+}
+```
+
+```python
+["Return long bed after.", 6211, True, False]
+```
+
+The first two positions follow the `items` tuple schemas; the extra positions are generated from `additionalItems`. `additionalItems: false` disallows any items beyond the tuple. This schema form is only valid when validated with a draft-04 through 2019-09 validator.
+
 ---
 
 ## Uniqueness

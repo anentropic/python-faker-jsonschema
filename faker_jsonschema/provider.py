@@ -2026,6 +2026,15 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         if "if" in schema:
             schema = self._apply_if_then_else(schema)
 
+        # Pre-process draft-04 through 2019-09 tuple-form items.
+        # When "items" is a list of schemas it acts like "prefixItems" in
+        # draft 2020-12.  Normalise to prefixItems so the array generator
+        # handles it correctly.  "additionalItems" is kept as-is; the array
+        # generator already understands it once prefix_items is populated.
+        if isinstance(schema.get("items"), list):
+            schema = dict(schema)  # shallow copy — do not mutate caller's dict
+            schema["prefixItems"] = schema.pop("items")
+
         # Pre-process legacy "dependencies" keyword (draft-04 through draft-07)
         # Split into "dependentRequired" (array values) and
         # "dependentSchemas" (schema values) for the object generator.

@@ -176,9 +176,7 @@ def test_jsonschema_format_min_max_length_fixed(faker, min_length, max_length):
         (None, 7, 12, 15),
     ),
 )
-def test_jsonschema_format_min_max_length_variable_singular(
-    faker, min_length, max_length
-):
+def test_jsonschema_format_min_max_length_variable_singular(faker, min_length, max_length):
     format_ = "password"
     format_type = JSONSchemaProvider.STRING_FORMATS[format_]
     assert format_type.length_type == LengthType.VARIABLE_SINGULAR
@@ -264,9 +262,7 @@ def test_jsonschema_format_min_max_length_variable_singular(
         (LengthType.UNCONSTRAINED, None, 0, 1, True),
     ),
 )
-def test_stringformat_validate_constraints(
-    length_type, lengths, min_length, max_length, expected
-):
+def test_stringformat_validate_constraints(length_type, lengths, min_length, max_length, expected):
     format_type = StringFormat(length_type=length_type, lengths=lengths)
     result = format_type.validate_constraints(min_length, max_length)
     assert result == expected
@@ -405,9 +401,7 @@ def test_from_schema_string_format_email(faker, repeats_for_slow):
 
 def test_format_byte_no_valid_length(faker):
     """_format_byte with no valid base64 length in range raises."""
-    with pytest.raises(
-        UnsatisfiableConstraintsError, match="incompatible with format: byte"
-    ):
+    with pytest.raises(UnsatisfiableConstraintsError, match="incompatible with format: byte"):
         faker.jsonschema_string(format_="byte", min_length=5, max_length=7)
 
 

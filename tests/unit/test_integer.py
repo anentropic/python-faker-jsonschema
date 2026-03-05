@@ -15,12 +15,8 @@ def test_jsonschema_integer_invalid_multiple(faker):
         )
 
 
-@pytest.mark.parametrize(
-    "exclusive_min,exclusive_max", itertools.product(*[[True, False]] * 2)
-)
-def test_jsonschema_integer_invalid_exclusive_range(
-    faker, exclusive_min, exclusive_max
-):
+@pytest.mark.parametrize("exclusive_min,exclusive_max", itertools.product(*[[True, False]] * 2))
+def test_jsonschema_integer_invalid_exclusive_range(faker, exclusive_min, exclusive_max):
     if True in (exclusive_min, exclusive_max):
         with pytest.raises(UnsatisfiableConstraintsError):
             faker.jsonschema_integer(
@@ -251,9 +247,7 @@ class TestNegativeExclusiveBoundsInteger:
     def test_negative_exclusive_min_direct_call(self, faker, repeats_for_fast):
         """Direct call with negative exclusive_minimum."""
         for _ in range(repeats_for_fast):
-            result = faker.jsonschema_integer(
-                exclusive_minimum=-20, exclusive_maximum=-10
-            )
+            result = faker.jsonschema_integer(exclusive_minimum=-20, exclusive_maximum=-10)
             assert isinstance(result, int)
             assert -20 < result < -10
 

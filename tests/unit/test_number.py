@@ -38,9 +38,7 @@ def test_jsonschema_number_invalid_multiple(faker):
         )
 
 
-@pytest.mark.parametrize(
-    "exclusive_min,exclusive_max", itertools.product(*[[True, False]] * 2)
-)
+@pytest.mark.parametrize("exclusive_min,exclusive_max", itertools.product(*[[True, False]] * 2))
 def test_jsonschema_number_invalid_exclusive_range(faker, exclusive_min, exclusive_max):
     if True in (exclusive_min, exclusive_max):
         with pytest.raises(UnsatisfiableConstraintsError):

@@ -42,9 +42,7 @@ ElementT = tuple[sre_constants._NamedIntConstant, ParsedNodeT]
 SubElementT = sre_parse.SubPattern | ElementT
 
 
-def ast_sub_in(
-    subpattern: SubPatternT, target: SubNodeT, replacements: list[SubNodeT]
-) -> None:
+def ast_sub_in(subpattern: SubPatternT, target: SubNodeT, replacements: list[SubNodeT]) -> None:
     """in-place substitution for an IN clause member (i.e. character class)."""
     for i, el in enumerate(cast("Iterable", subpattern)):
         if isinstance(el, tuple) and el[0] is sre_constants.IN:
@@ -59,9 +57,7 @@ def ast_sub_in(
             ast_sub_in(cast("SubPatternT", el), target, replacements)
 
 
-def ast_sub_el(
-    subpattern: SubPatternT, target: SubElementT, replacement: SubElementT
-) -> None:
+def ast_sub_el(subpattern: SubPatternT, target: SubElementT, replacement: SubElementT) -> None:
     """in-place substitution for a single SubPattern member."""
     for i, el in enumerate(cast("Iterable", subpattern)):
         if el == target:
