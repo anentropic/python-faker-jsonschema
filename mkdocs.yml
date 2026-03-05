@@ -48,3 +48,12 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Quickstart: quickstart.md
+  - Reference:
+    - Strings: reference/strings.md
+    - Numbers & Integers: reference/numbers.md
+    - Arrays: reference/arrays.md
+    - Objects: reference/objects.md
+    - Boolean & Null: reference/boolean-null.md
+    - Compound Keywords: reference/compound.md
+    - Special Keywords: reference/special.md

@@ -20,11 +20,11 @@ just format        # uv run ruff format faker_jsonschema tests
 just typecheck     # uv run basedpyright
 ```
 
-Always run `just test` (or at minimum `uv run pytest`) before committing.
+Always run `just lint` and `uv run pytest` before committing.
 
 ## Architecture
 
-- `faker_jsonschema/provider.py` — Single-file provider. `from_jsonschema(schema)` is the public entry point (`from_schema` remains a compatibility alias); it dispatches to `jsonschema_<type>()` methods via `_from_schema()`. A metaclass auto-generates `kwargs_from_schema` mappers (camelCase schema keys → snake_case args). Compound types (`allOf`/`anyOf`/`oneOf`) merge schemas via `TYPE_ATTR_MERGE_RESOLVERS` then recurse.
+- `faker_jsonschema/provider.py` — Single-file provider. `from_jsonschema(schema)` is the public entry point; it dispatches to `jsonschema_<type>()` methods via `_from_schema()`. A metaclass auto-generates `kwargs_from_schema` mappers (camelCase schema keys → snake_case args). Compound types (`allOf`/`anyOf`/`oneOf`) merge schemas via `TYPE_ATTR_MERGE_RESOLVERS` then recurse.
 - `js_regex/` — Vendored JS-regex-to-Python-regex adapter.
 - `faker_jsonschema/utils.py` — Small utilities (currently just `IntInf`).
 

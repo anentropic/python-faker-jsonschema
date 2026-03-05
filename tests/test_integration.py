@@ -17,8 +17,6 @@ def fake():
 
 def test_provider_registration_exposes_expected_entry_points(fake):
     assert callable(getattr(fake, "from_jsonschema", None))
-    # Compatibility alias should still be available.
-    assert callable(getattr(fake, "from_schema", None))
 
 
 def test_from_jsonschema_round_trip_smoke(fake):
@@ -28,12 +26,6 @@ def test_from_jsonschema_round_trip_smoke(fake):
         "required": ["name"],
     }
     result = fake.from_jsonschema(schema)
-    validate(result, schema)
-
-
-def test_from_schema_alias_still_works(fake):
-    schema = {"type": "integer", "minimum": 0, "maximum": 100}
-    result = fake.from_schema(schema)
     validate(result, schema)
 
 

@@ -1,11 +1,11 @@
 default:
     @just --list
 
-build:
-    uv run mkdocs build --strict
+docs-build:
+    uv run --group docs mkdocs build --strict
 
-serve port="8000":
-    uv run mkdocs serve --dev-addr 127.0.0.1:{{port}} --livereload
+docs-serve port="8000":
+    uv run --group docs mkdocs serve --dev-addr 127.0.0.1:{{port}} --livereload
 
 shell:
     uv run ipython
@@ -19,9 +19,10 @@ lint:
 format:
     uv run ruff format faker_jsonschema tests
 
+# Run tests with pytest and drop into pdb on failure (interactive)
 pytest:
     uv run pytest -v -s --pdb
 
 test:
     just lint
-    just pytest
+    uv run pytest -v -s
