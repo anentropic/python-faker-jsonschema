@@ -6,6 +6,9 @@ from faker import Faker
 
 from faker_jsonschema.provider import JSONSchemaProvider
 
+_DEFAULT_REPEATS_SLOW = 10
+_DEFAULT_REPEATS_FAST = 50
+
 
 @pytest.fixture(scope="session")
 def faker(record_testsuite_property):
@@ -23,13 +26,13 @@ def faker(record_testsuite_property):
 
 @pytest.fixture(scope="session")
 def repeats_for_slow(record_testsuite_property):
-    count = 10
-    record_testsuite_property("REPEATS", count)
+    count = int(os.getenv("REPEATS_SLOW", _DEFAULT_REPEATS_SLOW))
+    record_testsuite_property("REPEATS_SLOW", count)
     return count
 
 
 @pytest.fixture(scope="session")
 def repeats_for_fast(record_testsuite_property):
-    count = 50
-    record_testsuite_property("REPEATS", count)
+    count = int(os.getenv("REPEATS_FAST", _DEFAULT_REPEATS_FAST))
+    record_testsuite_property("REPEATS_FAST", count)
     return count
