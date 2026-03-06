@@ -1,26 +1,25 @@
 import math
 from decimal import Decimal
-
 from typing import Final
 
 
 def _validate_numeric(op, other):
+    # TODO: alternatively `return NotImplemented`
     if not isinstance(other, (int, float, Decimal)):
-        raise TypeError(
-            f"'{op}' not supported between instances of 'int' and '{type(other)}'"
-        )
+        raise TypeError(f"'{op}' not supported between instances of 'int' and '{type(other)}'")
 
 
 class IntInf(int):
     """
-    This only exists so we can pass an unlimited `max_examples` setting
-    to hypothesis, it has to pass an `isinstance(intinf, int)` check and basic
-    comparison checks.
+    Unbounded integer for hypothesis `max_examples` setting.
+
+    Passes `isinstance(intinf, int)` and basic comparison checks.
 
     For a more comprehensive implementation see:
     https://github.com/NeilGirdhar/extended_int
     (but that one does not pass an isinstance(int) check)
     """
+
     def __init__(self):
         pass
 
@@ -70,9 +69,9 @@ class IntInf(int):
         _validate_numeric("%", other)
         return int(math.inf.__mod__(other))
 
-    def __rmod__(self, other):
-        _validate_numeric("%", other)
-        return int(math.inf.__rmod__(other))
+    # def __rmod__(self, other):
+    #     _validate_numeric("%", other)
+    #     return int(math.inf.__rmod__(other))
 
 
 intinf: Final = IntInf()

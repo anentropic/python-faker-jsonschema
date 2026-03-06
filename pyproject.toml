@@ -1,6 +1,6 @@
 [project]
 name = "faker-jsonschema"
-version = "0.1.0"
+version = "1.0.0a1"
 description = "Generate fake data matching a JSON schema with Faker."
 authors = [{ name = "Anentropic", email = "ego@anentropic.com" }]
 readme = "README.md"
@@ -8,7 +8,6 @@ requires-python = ">=3.11"
 dependencies = [
     "faker>=37.0.0",
     "hypothesis>=6.0.0",
-    "inject>=5.2.0",
     "jsonschema>=4.0.0",
     "pytz>=2024.1",
     "wrapt>=1.16.0",
@@ -35,10 +34,37 @@ docs = [
 
 [tool.ruff]
 target-version = "py311"
-line-length = 88
+line-length = 100
 
-[tool.basedpyright]
-typeCheckingMode = "off"
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "TCH", "D"]
+ignore = [
+    "D1",    # don't require docstrings everywhere
+    "D202",  # allow blank line after docstring (common in tests)
+    "D203",  # conflicts with D211 (no blank line before class docstring)
+    "D212",  # conflicts with D213 (multiline summary on second line)
+    "D401",  # imperative mood is awkward for dunder methods
+    "D413",  # blank line after last section not required
+]
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+# SchemaT = Dict[str, JsonT] is intentionally loose — JSON Schema values are
+# dynamically typed.  The rules below fire on almost every schema dict access
+# and are not fixable without a large TypedDict refactor.
+reportIndexIssue = false
+reportOperatorIssue = false
+reportAttributeAccessIssue = false
+reportOptionalOperand = false
+reportOptionalMemberAccess = false
+reportOptionalSubscript = false
+reportOptionalIterable = false
+reportGeneralTypeIssues = false
+reportArgumentType = false
+reportReturnType = false
+reportAssignmentType = false
+reportCallIssue = false
 
 [build-system]
 requires = ["hatchling>=1.26.0"]

@@ -6,6 +6,9 @@ from faker import Faker
 
 from faker_jsonschema.provider import JSONSchemaProvider
 
+_DEFAULT_REPEATS_SLOW = 10
+_DEFAULT_REPEATS_FAST = 50
+
 
 @pytest.fixture(scope="session")
 def faker(record_testsuite_property):
@@ -13,7 +16,7 @@ def faker(record_testsuite_property):
     # TODO if we made a plugin could we print this nicer?
     # https://docs.pytest.org/en/latest/writing_plugins.html#conftest-py-plugins
     record_testsuite_property("SEED", seed)
-    print("SEED={}  ".format(seed), end='')
+    print(f"SEED={seed}  ", end="")
 
     Faker.seed(seed)
     fake = Faker()
@@ -22,7 +25,23 @@ def faker(record_testsuite_property):
 
 
 @pytest.fixture(scope="session")
-def repeats(record_testsuite_property):
-    count = 10
-    record_testsuite_property("REPEATS", count)
+def repeats_for_slow(record_testsuite_property):
+    count = int(os.getenv("REPEATS_SLOW", _DEFAULT_REPEATS_SLOW))
+    record_testsuite_property("REPEATS_SLOW", count)
     return count
+
+
+@pytest.fixture(scope="session")
+def repeats_for_fast(record_testsuite_property):
+    count = int(os.getenv("REPEATS_FAST", _DEFAULT_REPEATS_FAST))
+    record_testsuite_property("REPEATS_FAST", count)
+    return count
+
+
+@pytest.fixture()
+def provider(faker):
+    """Get the JSONSchemaProvider instance from the faker."""
+    for p in faker.providers:
+        if isinstance(p, JSONSchemaProvider):
+            return p
+    pytest.fail("JSONSchemaProvider not found")
