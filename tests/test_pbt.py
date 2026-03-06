@@ -16,7 +16,11 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from jsonschema import validate
 
-from faker_jsonschema.provider import JSONSchemaProvider, UnsatisfiableConstraintsError
+from faker_jsonschema.provider import (
+    JSONSchemaProvider,
+    LengthType,
+    UnsatisfiableConstraintsError,
+)
 
 # ── Faker instance for PBT ───────────────────────────────────────────
 
@@ -376,3 +380,146 @@ def test_pbt_ref_round_trip(schema):
     except UnsatisfiableConstraintsError:
         return
     validate(result, schema)
+
+
+# -- Format + length PBT ---------------------------------------------------
+
+# Build a list of (format_name, min_valid, max_valid) for VARIABLE_RANGE formats
+_FORMAT_RANGES = []
+for _name, _fmt in JSONSchemaProvider.STRING_FORMATS.items():
+    if (
+        _fmt.length_type is LengthType.VARIABLE_RANGE
+        and isinstance(_fmt.lengths, range)
+        and _fmt.return_type is str  # exclude bytes-returning formats
+    ):
+        _FORMAT_RANGES.append((_name, _fmt.lengths.start, _fmt.lengths.stop - 1))
+
+
+def _string_format_schemas():
+    """
+    Strategy yielding string schemas with format + compatible length.
+
+    Uses a 'safe' lower bound so we don't ask for lengths that are technically
+    in range but practically unreachable (e.g. 3-char email).
+    """
+    # safe_min avoids unreachably small values for variable-length formats
+    safe_min = 10
+
+    return st.sampled_from(_FORMAT_RANGES).flatmap(
+        lambda fmt: st.fixed_dictionaries(
+            {
+                "type": st.just("string"),
+                "format": st.just(fmt[0]),
+            },
+            optional={
+                "minLength": st.integers(
+                    min_value=max(fmt[1], safe_min),
+                    max_value=min(fmt[2], 200),
+                ),
+                "maxLength": st.integers(
+                    min_value=max(fmt[1], safe_min),
+                    max_value=min(fmt[2], 200),
+                ),
+            },
+        ).filter(lambda s: s.get("maxLength", 99999) >= s.get("minLength", 0))
+    )
+
+
+@given(schema=_string_format_schemas())
+@settings(
+    max_examples=50,
+    suppress_health_check=[HealthCheck.too_slow],
+    deadline=None,
+)
+def test_pbt_string_format_length_round_trip(schema):
+    """Format + length constraints: result validates and respects length."""
+    try:
+        result = _faker.from_jsonschema(schema)
+    except UnsatisfiableConstraintsError:
+        return
+    validate(result, schema)
+    if "minLength" in schema:
+        assert len(result) >= schema["minLength"]
+    if "maxLength" in schema:
+        assert len(result) <= schema["maxLength"]
+
+
+# -- NOT schema PBT --------------------------------------------------------
+
+
+def _not_schemas():
+    """Strategy yielding NOT schemas with typed inner schemas."""
+    inner = st.one_of(
+        st.fixed_dictionaries(
+            {"type": st.just("string")},
+            optional={"minLength": st.integers(0, 20), "maxLength": st.integers(0, 50)},
+        ).filter(lambda s: s.get("maxLength", 999) >= s.get("minLength", 0)),
+        st.fixed_dictionaries(
+            {"type": st.just("integer")},
+            optional={
+                "minimum": st.integers(-100, 100),
+                "maximum": st.integers(-100, 100),
+            },
+        ).filter(lambda s: s.get("maximum", 999) >= s.get("minimum", -999)),
+        st.just({"type": "boolean"}),
+        st.just({"type": "null"}),
+        st.fixed_dictionaries(
+            {"type": st.just("number")},
+            optional={
+                "minimum": st.integers(-100, 100),
+                "maximum": st.integers(-100, 100),
+            },
+        ).filter(lambda s: s.get("maximum", 999) >= s.get("minimum", -999)),
+    )
+    return inner.map(lambda s: {"not": s})
+
+
+@given(schema=_not_schemas())
+@settings(
+    max_examples=50,
+    suppress_health_check=[HealthCheck.too_slow],
+    deadline=None,
+)
+def test_pbt_not_round_trip(schema):
+    """NOT schemas should always succeed (no NoExampleFoundError)."""
+    result = _faker.from_jsonschema(schema)
+    validate(result, schema)
+
+
+# -- Pattern + length PBT --------------------------------------------------
+
+
+def _pattern_length_schemas():
+    """Strategy yielding string schemas with unanchored patterns + length."""
+    patterns = st.sampled_from([r"\d+", r"[a-z]+", r"\w+", r"[A-Za-z0-9]+"])
+    return st.fixed_dictionaries(
+        {
+            "type": st.just("string"),
+            "pattern": patterns,
+            "minLength": st.integers(min_value=1, max_value=80),
+        },
+        optional={
+            "maxLength": st.integers(min_value=1, max_value=200),
+        },
+    ).filter(lambda s: s.get("maxLength", 999) >= s["minLength"])
+
+
+@given(schema=_pattern_length_schemas())
+@settings(
+    max_examples=50,
+    suppress_health_check=[HealthCheck.too_slow],
+    deadline=None,
+)
+def test_pbt_pattern_length_round_trip(schema):
+    """Unanchored pattern + length: result validates and respects length."""
+    import re
+
+    try:
+        result = _faker.from_jsonschema(schema)
+    except UnsatisfiableConstraintsError:
+        return
+    validate(result, schema)
+    assert len(result) >= schema["minLength"]
+    if "maxLength" in schema:
+        assert len(result) <= schema["maxLength"]
+    assert re.search(schema["pattern"], result)

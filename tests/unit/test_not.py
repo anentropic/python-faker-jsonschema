@@ -3,109 +3,68 @@
 import pytest
 from jsonschema import ValidationError, validate
 
-from faker_jsonschema.provider import NoExampleFoundError, UnsatisfiableConstraintsError
+from faker_jsonschema.provider import UnsatisfiableConstraintsError
 
 
 def test_jsonschema_not_constrained_string(faker, repeats_for_slow):
-    """Not a constrained string → value should not match the constraints."""
-    # Use a constrained schema so there's a chance of generating non-matching values
+    """Not a constrained string -> value should not match the constraints."""
     not_schema = {"type": "string", "minLength": 10, "maxLength": 20}
     schema = {"not": not_schema}
-    successes = 0
     for _ in range(repeats_for_slow):
-        try:
-            result = faker.from_jsonschema(schema)
-        except NoExampleFoundError:
-            # acceptable — the random type chosen was string and couldn't
-            # find a non-matching string in `max_search` attempts
-            continue
-        successes += 1
+        result = faker.from_jsonschema(schema)
         validate(result, schema)
-    assert successes > 0, "Should succeed at least once"
 
 
 def test_jsonschema_not_type_integer(faker, repeats_for_slow):
-    """Not a constrained integer → value should not match the constraints."""
+    """Not a constrained integer -> value should not match the constraints."""
     not_schema = {"type": "integer", "minimum": 0, "maximum": 10}
     schema = {"not": not_schema}
-    successes = 0
     for _ in range(repeats_for_slow):
-        try:
-            result = faker.from_jsonschema(schema)
-        except NoExampleFoundError:
-            continue
-        successes += 1
+        result = faker.from_jsonschema(schema)
         validate(result, schema)
-    assert successes > 0, "Should succeed at least once"
 
 
 def test_jsonschema_not_type_boolean(faker, repeats_for_slow):
     """from_schema({"not": {"type": "boolean"}}) should produce non-booleans."""
     schema = {"not": {"type": "boolean"}}
-    successes = 0
     for _ in range(repeats_for_slow):
-        try:
-            result = faker.from_jsonschema(schema)
-        except NoExampleFoundError:
-            continue
-        successes += 1
+        result = faker.from_jsonschema(schema)
         validate(result, schema)
-    assert successes > 0, "Should succeed at least once"
 
 
 def test_jsonschema_not_type_number(faker, repeats_for_slow):
-    """Not a number schema → result should fail validation against it."""
+    """Not a number schema -> result should fail validation against it."""
     not_schema = {"type": "number", "minimum": 0, "maximum": 100}
     schema = {"not": not_schema}
-    successes = 0
     for _ in range(repeats_for_slow):
-        try:
-            result = faker.from_jsonschema(schema)
-        except NoExampleFoundError:
-            continue
-        successes += 1
+        result = faker.from_jsonschema(schema)
         validate(result, schema)
-    assert successes > 0, "Should succeed at least once"
 
 
 def test_jsonschema_not_direct_call(faker, repeats_for_slow):
     """Direct call to jsonschema_not with a constrained integer schema."""
     not_schema = {"type": "integer", "minimum": 0, "maximum": 10}
-    successes = 0
     for _ in range(repeats_for_slow):
-        try:
-            result = faker.jsonschema_not(not_schema)
-        except NoExampleFoundError:
-            continue
-        successes += 1
+        result = faker.jsonschema_not(not_schema)
         # verify it does NOT validate against the not_schema
         with pytest.raises(ValidationError):
             validate(result, not_schema)
-    assert successes > 0, "Should succeed at least once"
 
 
-def test_jsonschema_not_different_type_always_passes(faker, repeats_for_slow):
-    """When not picks a different type, it always succeeds without search."""
-    # Use a type that's 1 of 6 basic types, so most random picks will differ
+def test_jsonschema_not_different_type_always_passes(faker):
+    """With type biasing, not always succeeds by picking a different type."""
     not_schema = {"type": "boolean"}
-    successes = 0
-    for _ in range(50):  # more iterations for statistical confidence
-        try:
-            result = faker.jsonschema_not(not_schema)
-        except NoExampleFoundError:
-            continue
-        successes += 1
+    for _ in range(50):
+        result = faker.jsonschema_not(not_schema)
         with pytest.raises(ValidationError):
             validate(result, not_schema)
-    # boolean is 1/6 of types, so we should succeed most of the time
-    assert successes > 10, f"Only {successes}/50 successes, expected more"
 
 
-# ── unsatisfiable not schemas ────────────────────────────────────────
+# -- unsatisfiable not schemas -----------------------------------------------
 
 
 def test_not_empty_schema_raises(faker):
-    """not: {} forbids all values; should raise immediately without exhausting search budget."""
+    """not: {} forbids all values; should raise immediately."""
     with pytest.raises(UnsatisfiableConstraintsError):
         faker.from_jsonschema({"not": {}})
 
@@ -116,52 +75,31 @@ def test_not_true_schema_raises(faker):
         faker.jsonschema_not(True)
 
 
-# ── not termination edge cases ───────────────────────────────────────
+# -- not termination edge cases ----------------------------------------------
 
 
 class TestNotTermination:
-    """Verify jsonschema_not terminates with various schema shapes."""
+    """Verify jsonschema_not terminates reliably with various schema shapes."""
 
     def test_not_very_broad_object(self, faker):
-        """Not with a very broad object schema should eventually terminate or raise."""
+        """Not with a very broad object schema should always succeed."""
         not_schema = {"type": "object"}
-        # This should terminate (either by finding a non-object or raising)
-        successes = 0
         for _ in range(20):
-            try:
-                result = faker.jsonschema_not(not_schema)
-                successes += 1
-                # result must not be a dict
-                with pytest.raises(ValidationError):
-                    validate(result, not_schema)
-            except NoExampleFoundError:
-                pass
-        # Should succeed some of the time (5/7 types aren't objects)
-        assert successes > 5
+            result = faker.jsonschema_not(not_schema)
+            with pytest.raises(ValidationError):
+                validate(result, not_schema)
 
     def test_not_unconstrained_string(self, faker):
-        """Not a fully unconstrained string → picks a different type."""
+        """Not a fully unconstrained string -> picks a different type."""
         not_schema = {"type": "string"}
-        successes = 0
         for _ in range(20):
-            try:
-                faker.jsonschema_not(not_schema)
-                successes += 1
-            except NoExampleFoundError:
-                pass
-        assert successes > 5
+            faker.jsonschema_not(not_schema)
 
-    def test_not_null(self, faker, repeats_for_slow):
-        """Not null → should never return None."""
+    def test_not_null(self, faker):
+        """Not null -> should never return None."""
         not_schema = {"type": "null"}
         schema = {"not": not_schema}
-        successes = 0
         for _ in range(50):
-            try:
-                result = faker.from_jsonschema(schema)
-                successes += 1
-                assert result is not None
-                validate(result, schema)
-            except NoExampleFoundError:
-                pass
-        assert successes > 10
+            result = faker.from_jsonschema(schema)
+            assert result is not None
+            validate(result, schema)

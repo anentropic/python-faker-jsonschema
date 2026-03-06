@@ -63,6 +63,5 @@ just test
 
 ## TODOs
 
-- can we eliminate more `NoExampleFoundError` failures?
 - republish improved `js-regex` as new lib
 - make regex support optional to avoid Hypothesis dependency, or implement own regex generation strategy

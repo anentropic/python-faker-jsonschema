@@ -478,7 +478,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         # mentioned in OpenAPI spec as examples:
         # ----------
         "email": StringFormat(
-            length_type=LengthType.UNCONSTRAINED,
+            length_type=LengthType.VARIABLE_RANGE,
+            lengths=range(3, 255),
         ),
         "uuid": StringFormat(
             length_type=LengthType.FIXED,
@@ -486,10 +487,12 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             lengths=[36],
         ),
         "uri": StringFormat(
-            length_type=LengthType.UNCONSTRAINED,
+            length_type=LengthType.VARIABLE_RANGE,
+            lengths=range(10, 2084),
         ),
         "hostname": StringFormat(
-            length_type=LengthType.UNCONSTRAINED,
+            length_type=LengthType.VARIABLE_RANGE,
+            lengths=range(1, 254),
         ),
         "ipv4": StringFormat(
             length_type=LengthType.FIXED,
@@ -508,31 +511,40 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             lengths=range(8, 15),
         ),
         "duration": StringFormat(
-            length_type=LengthType.UNCONSTRAINED,
+            length_type=LengthType.VARIABLE_RANGE,
+            lengths=range(3, 26),
         ),
         "uri-reference": StringFormat(
-            length_type=LengthType.UNCONSTRAINED,
+            length_type=LengthType.VARIABLE_RANGE,
+            lengths=range(1, 2084),
         ),
         "uri-template": StringFormat(
-            length_type=LengthType.UNCONSTRAINED,
+            length_type=LengthType.VARIABLE_RANGE,
+            lengths=range(10, 2084),
         ),
         "iri": StringFormat(
-            length_type=LengthType.UNCONSTRAINED,
+            length_type=LengthType.VARIABLE_RANGE,
+            lengths=range(10, 2084),
         ),
         "iri-reference": StringFormat(
-            length_type=LengthType.UNCONSTRAINED,
+            length_type=LengthType.VARIABLE_RANGE,
+            lengths=range(1, 2084),
         ),
         "idn-email": StringFormat(
-            length_type=LengthType.UNCONSTRAINED,
+            length_type=LengthType.VARIABLE_RANGE,
+            lengths=range(3, 255),
         ),
         "idn-hostname": StringFormat(
-            length_type=LengthType.UNCONSTRAINED,
+            length_type=LengthType.VARIABLE_RANGE,
+            lengths=range(1, 254),
         ),
         "json-pointer": StringFormat(
-            length_type=LengthType.UNCONSTRAINED,
+            length_type=LengthType.VARIABLE_RANGE,
+            lengths=range(1, 256),
         ),
         "relative-json-pointer": StringFormat(
-            length_type=LengthType.UNCONSTRAINED,
+            length_type=LengthType.VARIABLE_RANGE,
+            lengths=range(1, 256),
         ),
         "regex": StringFormat(
             length_type=LengthType.UNCONSTRAINED,
@@ -688,17 +700,104 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
     def _format_binary(self, length: int) -> bytes:
         return self.generator.binary(length=length)
 
-    def _format_email(self) -> str:
-        return self.generator.email()
+    def _format_email(self, min_length: int = 0, max_length: int = 254) -> str:
+        """
+        Length-aware email: vary local-part and domain to hit target.
+
+        RFC 5321: local part max 64, total max 254, min ~3 (``a@b``).
+        """
+        _LOCAL_MAX = 64
+
+        # Work out how long the domain needs to be.
+        # min total = local + "@" + domain, with local capped at 64
+        # So domain must be >= min_length - 64 - 1
+        domain_min_len = max(1, min_length - _LOCAL_MAX - 1)
+
+        # And domain must be short enough: max total = local(>=1) + "@" + domain
+        domain_max_len = max(1, max_length - 2)  # at least 1 char local + "@"
+
+        domain = self.generator.domain_name()
+
+        # If domain is too short, add subdomains
+        while len(domain) < domain_min_len:
+            gap = domain_min_len - len(domain) - 1  # -1 for "."
+            if gap < 1:
+                break
+            label_len = min(gap, self.generator.random_int(2, 12))
+            label = self.generator.pystr(min_chars=label_len, max_chars=label_len)
+            domain = f"{label}.{domain}"
+
+        # If domain is too long, generate a shorter one
+        if len(domain) > domain_max_len:
+            tld = self.generator.tld()
+            if len(tld) + 1 > domain_max_len:
+                domain = tld[: max(1, domain_max_len)]
+            else:
+                label_budget = domain_max_len - len(tld) - 1
+                label = self.generator.pystr(
+                    min_chars=max(1, label_budget),
+                    max_chars=max(1, label_budget),
+                )
+                domain = f"{label}.{tld}"
+
+        suffix_len = 1 + len(domain)  # "@" + domain
+        local_min = max(1, min_length - suffix_len)
+        local_max = min(_LOCAL_MAX, max_length - suffix_len)
+        if local_max < 1:
+            local_max = 1
+        if local_min > local_max:
+            local_min = local_max
+        local = self.generator.pystr(min_chars=local_min, max_chars=local_max)
+        return f"{local}@{domain}"
 
     def _format_uuid(self) -> str:
         return self.generator.uuid4()
 
-    def _format_uri(self) -> str:
-        return self.generator.uri()
+    def _format_uri(self, min_length: int = 0, max_length: int = 2083) -> str:
+        """Length-aware URI: vary path length to hit target."""
+        scheme = self.generator.random_element(["http", "https"])
+        host = self.generator.domain_name()
+        base = f"{scheme}://{host}"
+        if len(base) >= max_length:
+            return base[:max_length]
+        remaining = max(0, min_length - len(base) - 1)  # -1 for "/"
+        path_max = max_length - len(base) - 1
+        if remaining > 0 and path_max > 0:
+            path = self.generator.pystr(
+                min_chars=min(remaining, path_max),
+                max_chars=min(path_max, max(remaining, path_max)),
+            )
+            return f"{base}/{path}"
+        elif path_max > 0:
+            path_len = self.generator.random_int(1, min(path_max, 20))
+            path = self.generator.pystr(min_chars=path_len, max_chars=path_len)
+            return f"{base}/{path}"
+        return base
 
-    def _format_hostname(self) -> str:
-        return self.generator.hostname()
+    def _format_hostname(self, min_length: int = 0, max_length: int = 253) -> str:
+        """
+        Length-aware hostname: vary subdomain labels to hit target.
+
+        RFC 1123: max 253 chars, each label max 63 chars.
+        """
+        tld = self.generator.tld()
+        base_domain = self.generator.pystr(min_chars=2, max_chars=min(10, 63))
+        hostname = f"{base_domain}.{tld}"
+        # Add subdomain labels to reach min_length
+        while len(hostname) < min_length:
+            # Need this many more chars; each label costs label_len + 1 (for ".")
+            gap = min_length - len(hostname)
+            # Label must be at least 1 char; the "." adds 1 more
+            label_len = min(gap - 1, 63)  # -1 accounts for the "." separator
+            if label_len < 1:
+                # Gap is 1 char — can't add a label (need at least "x.")
+                # Extend the base domain instead
+                hostname = self.generator.pystr(min_chars=1, max_chars=1) + hostname
+                break
+            label_max = min(label_len, self.generator.random_int(2, min(12, 63)))
+            label = self.generator.pystr(min_chars=label_max, max_chars=label_max)
+            hostname = f"{label}.{hostname}"
+        return hostname[:max_length]
 
     def _format_ipv4(self) -> str:
         return self.generator.ipv4()
@@ -720,86 +819,134 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         minutes = remainder // 60
         return f"{t}{sign}{hours:02d}:{minutes:02d}"
 
-    def _format_duration(self) -> str:
-        """ISO 8601 / RFC 3339 Appendix A duration, e.g. 'P3Y6M4DT12H30M5S'."""
-        parts = []
-        years = self.generator.random_int(0, 10)
-        months = self.generator.random_int(0, 11)
-        days = self.generator.random_int(0, 30)
-        hours = self.generator.random_int(0, 23)
-        minutes = self.generator.random_int(0, 59)
-        seconds = self.generator.random_int(0, 59)
-        if years:
-            parts.append(f"{years}Y")
-        if months:
-            parts.append(f"{months}M")
-        if days:
-            parts.append(f"{days}D")
-        time_parts = []
-        if hours:
-            time_parts.append(f"{hours}H")
-        if minutes:
-            time_parts.append(f"{minutes}M")
-        if seconds:
-            time_parts.append(f"{seconds}S")
-        date_part = "".join(parts)
-        time_part = "T" + "".join(time_parts) if time_parts else ""
-        result = f"P{date_part}{time_part}"
-        if result == "P":
-            result = "PT0S"
-        return result
+    def _format_duration(self, min_length: int = 0, max_length: int = 25) -> str:
+        """
+        ISO 8601 / RFC 3339 Appendix A duration, e.g. 'P3Y6M4DT12H30M5S'.
 
-    def _format_uri_reference(self) -> str:
+        Length-aware: include/omit components to hit target length.
+        Min ``P0D`` (3 chars), max ``P10Y11M30DT23H59M59S`` (20 chars).
+        """
+        # All possible components with their (suffix, max_value) pairs
+        date_components = [
+            ("Y", 10),  # years:   "0Y".."10Y"   = 2-3 chars
+            ("M", 11),  # months:  "0M".."11M"   = 2-3 chars
+            ("D", 30),  # days:    "0D".."30D"   = 2-3 chars
+        ]
+        time_components = [
+            ("H", 23),  # hours:   "0H".."23H"   = 2-3 chars
+            ("M", 59),  # minutes: "0M".."59M"   = 2-3 chars
+            ("S", 59),  # seconds: "0S".."59S"   = 2-3 chars
+        ]
+
+        def build() -> str:
+            parts = []
+            for suffix, max_val in date_components:
+                if self.generator.random_int(0, 1):
+                    val = self.generator.random_int(0, max_val)
+                    parts.append(f"{val}{suffix}")
+            time_parts = []
+            for suffix, max_val in time_components:
+                if self.generator.random_int(0, 1):
+                    val = self.generator.random_int(0, max_val)
+                    time_parts.append(f"{val}{suffix}")
+            date_part = "".join(parts)
+            time_part = "T" + "".join(time_parts) if time_parts else ""
+            result = f"P{date_part}{time_part}"
+            if result == "P":
+                result = "PT0S"
+            return result
+
+        # Try a few times to hit the length range
+        for _ in range(20):
+            result = build()
+            if min_length <= len(result) <= max_length:
+                return result
+
+        # Fallback: build minimally or maximally as needed
+        if min_length > 3:
+            # Include all components to maximize length
+            parts = []
+            for suffix, max_val in date_components:
+                parts.append(f"{self.generator.random_int(1, max_val)}{suffix}")
+            time_parts = []
+            for suffix, max_val in time_components:
+                time_parts.append(f"{self.generator.random_int(1, max_val)}{suffix}")
+            result = "P" + "".join(parts) + "T" + "".join(time_parts)
+            return result[:max_length] if len(result) > max_length else result
+        # Minimal
+        return "PT0S"[:max_length]
+
+    def _format_uri_reference(self, min_length: int = 0, max_length: int = 2083) -> str:
         """URI-reference: either a URI or a relative-reference."""
-        if self.generator.random_int(0, 1):
-            return self.generator.uri()
-        # relative reference
-        path = "/".join(
-            self.generator.pystr(min_chars=1, max_chars=8)
-            for _ in range(self.generator.random_int(1, 4))
-        )
+        if min_length > 10 or self.generator.random_int(0, 1):
+            return self._format_uri(min_length=min_length, max_length=max_length)
+        # relative reference — vary path length
+        budget = max_length - 1  # leading "/"
+        path_min = max(1, min_length - 1)
+        path_len = self.generator.random_int(path_min, min(budget, max(path_min, 20)))
+        path = self.generator.pystr(min_chars=path_len, max_chars=path_len)
         return f"/{path}"
 
-    def _format_uri_template(self) -> str:
+    def _format_uri_template(self, min_length: int = 0, max_length: int = 2083) -> str:
         """RFC 6570 URI Template, e.g. 'https://example.com/{id}'."""
-        base = self.generator.uri()
-        var_name = self.generator.pystr(min_chars=2, max_chars=8)
-        return f"{base}{{{var_name}}}"
+        # Reserve space for template variable suffix "{xx}" = 4 chars min
+        var_len = self.generator.random_int(2, 8)
+        suffix_len = var_len + 2  # { + var + }
+        uri = self._format_uri(
+            min_length=max(0, min_length - suffix_len),
+            max_length=max_length - suffix_len,
+        )
+        var_name = self.generator.pystr(min_chars=var_len, max_chars=var_len)
+        return f"{uri}{{{var_name}}}"
 
-    def _format_iri(self) -> str:
+    def _format_iri(self, min_length: int = 0, max_length: int = 2083) -> str:
         """IRI (RFC 3987). ASCII URIs are valid IRIs."""
-        return self.generator.uri()
+        return self._format_uri(min_length=min_length, max_length=max_length)
 
-    def _format_iri_reference(self) -> str:
+    def _format_iri_reference(self, min_length: int = 0, max_length: int = 2083) -> str:
         """IRI-reference (RFC 3987). Reuse uri-reference logic."""
-        return self._format_uri_reference()
+        return self._format_uri_reference(min_length=min_length, max_length=max_length)
 
-    def _format_idn_email(self) -> str:
+    def _format_idn_email(self, min_length: int = 0, max_length: int = 254) -> str:
         """Internationalized email (RFC 6531). ASCII is a valid subset."""
-        return self.generator.email()
+        return self._format_email(min_length=min_length, max_length=max_length)
 
-    def _format_idn_hostname(self) -> str:
+    def _format_idn_hostname(self, min_length: int = 0, max_length: int = 253) -> str:
         """Internationalized hostname (RFC 5890). ASCII is a valid subset."""
-        return self.generator.hostname()
+        return self._format_hostname(min_length=min_length, max_length=max_length)
 
-    def _format_json_pointer(self) -> str:
+    def _format_json_pointer(self, min_length: int = 0, max_length: int = 255) -> str:
         """RFC 6901 JSON Pointer, e.g. '/foo/bar/0'."""
-        segments = [
-            self.generator.pystr(min_chars=1, max_chars=8)
-            for _ in range(self.generator.random_int(1, 5))
-        ]
-        return "/" + "/".join(segments)
+        # Build segments to fill the target length
+        result = ""
+        target = self.generator.random_int(max(1, min_length), max_length)
+        while len(result) < target:
+            remaining = target - len(result) - 1  # -1 for "/"
+            if remaining < 1:
+                result += "/"
+                break
+            seg_len = min(remaining, self.generator.random_int(1, 8))
+            seg = self.generator.pystr(min_chars=seg_len, max_chars=seg_len)
+            result += "/" + seg
+        return result[:max_length]
 
-    def _format_relative_json_pointer(self) -> str:
+    def _format_relative_json_pointer(self, min_length: int = 0, max_length: int = 255) -> str:
         """Relative JSON Pointer, e.g. '1/foo/bar'."""
         prefix = str(self.generator.random_int(0, 9))
-        if self.generator.random_int(0, 1):
-            segments = [
-                self.generator.pystr(min_chars=1, max_chars=8)
-                for _ in range(self.generator.random_int(1, 4))
-            ]
-            return prefix + "/" + "/".join(segments)
-        return prefix + "#"
+        if max_length <= 2 or (min_length <= 2 and self.generator.random_int(0, 1)):
+            return (prefix + "#")[:max_length]
+        # Build path segments to fill target length
+        result = prefix
+        target = self.generator.random_int(max(len(prefix), min_length), max_length)
+        while len(result) < target:
+            remaining = target - len(result) - 1  # -1 for "/"
+            if remaining < 1:
+                result += "/"
+                break
+            seg_len = min(remaining, self.generator.random_int(1, 8))
+            seg = self.generator.pystr(min_chars=seg_len, max_chars=seg_len)
+            result += "/" + seg
+        return result[:max_length]
 
     def _format_regex(self) -> str:
         """A valid regular expression."""
@@ -931,14 +1078,24 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             # NOTE: `format` is ignored if `pattern` is given
             # Validate as JS regex (raises NotJavascriptRegex for incompatible patterns)
             js_regex.compile(pattern)
+
+            # JSON Schema `pattern` uses partial match (re.search), so for
+            # patterns without an end anchor we can pad short results with
+            # random characters to meet minLength.
+            has_end_anchor = bool(
+                re.search(r"(?<!\\)\$\Z", pattern) or re.search(r"(?<!\\)\\[Zz]\Z", pattern)
+            )
+            can_pad = not has_end_anchor and min_length > 0
+
             # Use from_regex strategy with .example() for varied output;
             # hypothesis.find() shrinks to minimal examples which is not
             # suitable for data generation (always produces same value).
             regex_st = st.from_regex(re.compile(pattern))
-            if max_length is not None:
-                regex_st = regex_st.filter(lambda s: len(s) <= max_length)
             if min_length > 0:
                 regex_st = regex_st.filter(lambda s: len(s) >= min_length)
+            if max_length is not None:
+                regex_st = regex_st.filter(lambda s: len(s) <= max_length)
+            compiled = re.compile(pattern)
             for _ in range(self.context.max_search):
                 try:
                     with warnings.catch_warnings():
@@ -948,6 +1105,21 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                     break
                 if is_valid(example):
                     return example
+                # If too short and pattern allows padding, extend
+                if can_pad and len(example) < min_length:
+                    padding_needed = min_length - len(example)
+                    if max_length is not None:
+                        pad_max = max_length - len(example)
+                    else:
+                        pad_max = padding_needed
+                    if pad_max >= padding_needed:
+                        padding = self.generator.pystr(
+                            min_chars=padding_needed,
+                            max_chars=pad_max,
+                        )
+                        padded = example + padding
+                        if compiled.search(padded) and is_valid(padded):
+                            return padded
             raise UnsatisfiableConstraintsError(
                 f"Unable to generate any random value that matches "
                 f"pattern: /{pattern}/ and minLength: {min_length}, "
@@ -1632,14 +1804,43 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         _, generator = self._random_type_method()
         return generator()
 
+    def _random_type_method_excluding(
+        self, exclude_type: TypeName | None
+    ) -> tuple[TypeName, Callable]:
+        """
+        Pick a random type and its generator, excluding *exclude_type*.
+
+        In JSON Schema ``integer`` is a subtype of ``number``, so excluding
+        ``number`` also excludes ``integer`` (an integer would still validate
+        against ``{"type": "number"}``).
+        """
+        types = BASIC_TYPES if self.context._depth < self.context.max_depth else FLAT_TYPES
+        if exclude_type is not None:
+            exclude = {exclude_type}
+            # integer is a subtype of number in JSON Schema:
+            # an integer validates against {type: "number"}, and a
+            # whole-number float validates against {type: "integer"}.
+            if exclude_type in (TypeName.NUMBER, TypeName.INTEGER):
+                exclude.update({TypeName.NUMBER, TypeName.INTEGER})
+            types = types - exclude
+        if not types:
+            raise NoExampleFoundError(f"No alternative types available (excluding {exclude_type}).")
+        type_ = self.generator.random_element(types)
+        generator = getattr(self, self.BASE_METHOD_MAP[type_])
+        if type_ in NESTED_TYPES:
+            generator = self.descend_into(generator)
+        return type_, generator
+
     def jsonschema_not(self, schema: SchemaT) -> JsonT:
         """
-        We should generate a random element of any type.
+        Generate a random value that does NOT validate against *schema*.
 
-        If the randomly chosen type is the same type as the passed schema then
-        check that it does not match the passed schema, if so regenerate.
-        (Is this what the spec intended? I think it must be because that is
-        what makes most sense from a validation-centric point of view)
+        Strategy:
+        - If the schema has a ``type``, prefer generating a different type
+          (guaranteed to not validate, no retry needed).
+        - With small probability, try generating a same-type value that
+          violates the schema's constraints (for variety).
+        - If same-type attempts fail quickly, fall back to a different type.
 
         Raises:
             NoExampleFoundError
@@ -1662,28 +1863,40 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 return False
             return True
 
-        def search(generator: Callable[..., T]) -> T:
-            for _ in range(self.context.max_search):
-                example = generator()
-                if not is_valid(example):
-                    # we found a usable example
-                    break
-            else:
-                raise NoExampleFoundError
-            return example
+        not_type_str = schema.get("type") if isinstance(schema, dict) else None
+        not_type = TypeName(not_type_str) if not_type_str is not None else None
 
-        type_, generator = self._random_type_method()
+        # If schema has a type, bias strongly toward a different type.
+        # ~85% of the time pick a different type (guaranteed success).
+        # ~15% of the time try same-type for variety (may need retry).
+        _SAME_TYPE_CHANCE = 15  # percent
+        _QUICK_TRIES = 20
 
-        if type_ == schema["type"]:
-            try:
-                return search(generator)
-            except NoExampleFoundError as e:
-                raise NoExampleFoundError(
-                    f"Unable to generate any random value that matches "
-                    f"not: /{schema}/ after {self.context.max_search} attempts."
-                ) from e
+        if not_type is not None:
+            try_same_type = self.generator.random_int(1, 100) <= _SAME_TYPE_CHANCE
         else:
-            return generator()
+            # No type in schema — can't bias, just generate and reject
+            try_same_type = True
+
+        if try_same_type:
+            type_, generator = self._random_type_method()
+            same_type = not_type is not None and (
+                type_ == not_type or {not_type, type_} <= {TypeName.NUMBER, TypeName.INTEGER}
+            )
+            if same_type:
+                # Quick search: try a small number of attempts
+                for _ in range(_QUICK_TRIES):
+                    example = generator()
+                    if not is_valid(example):
+                        return example
+                # Quick search failed — fall back to a different type
+            else:
+                # Different type chosen randomly — no retry needed
+                return generator()
+
+        # Pick a type that's different from the NOT schema's type
+        type_, generator = self._random_type_method_excluding(not_type)
+        return generator()
 
     def _get_collection_max(self, min_: int):
         if min_ > self.context.default_collection_max:

@@ -37,7 +37,8 @@
 **Limitations:**
 
 - `pattern` and `format` are mutually exclusive — `pattern` takes precedence when both are specified.
-- Very tight combinations of `pattern` + `minLength`/`maxLength` may exhaust the search budget and raise `NoExampleFoundError`.
+- For unanchored patterns (no `$` end anchor), short regex matches are automatically padded with random characters to meet `minLength`, since JSON Schema `pattern` uses substring matching (`re.search`).
+- Anchored patterns (`^...$`) with very tight `minLength`/`maxLength` constraints may exhaust the search budget and raise `NoExampleFoundError`.
 
 ---
 
@@ -76,7 +77,7 @@ The `format` keyword selects a specific value generator. All supported formats a
 | `byte` | `b'mRfl1duARQXk...'` | Base64-encoded bytes (`bytes` object) |
 | `binary` | `b'\xf6\xcc\x0c...'` | Raw binary bytes (`bytes` object) |
 
-**Strategy:** each format maps to a dedicated Faker generator method. The generated value is checked against any `minLength`/`maxLength` constraints; for variable-length formats, a fresh value is sampled until one fits (up to `max_search` attempts).
+**Strategy:** each format maps to a dedicated generator method. Most variable-length formats (`email`, `uri`, `hostname`, `duration`, `json-pointer`, etc.) are length-aware — they accept `minLength`/`maxLength` and produce output in that range directly, without retry. If the requested length falls outside the format's valid bounds (e.g. `minLength: 300` for `email`, which exceeds the RFC 5321 maximum of 254), an `UnsatisfiableConstraintsError` is raised. Fixed-length formats (`date`, `uuid`, etc.) ignore length constraints. The `regex` format and any unknown format resolved via Faker fall back to retry sampling (up to `max_search` attempts).
 
 **Limitations:**
 

@@ -89,7 +89,7 @@ Two exceptions can be raised during generation:
 | Exception | Meaning |
 |-----------|---------|
 | `UnsatisfiableConstraintsError` | The schema's constraints cannot simultaneously be satisfied — e.g. `minimum: 10, maximum: 5`, or `allOf` with contradicting types. |
-| `NoExampleFoundError` | The generator exhausted its search budget (`max_search` attempts) without finding a conforming value — typically caused by very tight `pattern` + length constraints, or an over-constrained `not` schema. |
+| `NoExampleFoundError` | The generator exhausted its search budget (`max_search` attempts) without finding a conforming value — typically caused by anchored `pattern` + tight length constraints, or a `multipleOf` with a very sparse range. |
 
 ```python
 from faker_jsonschema.provider import UnsatisfiableConstraintsError, NoExampleFoundError
