@@ -172,8 +172,8 @@ def test_jsonschema_format_min_max_length_fixed(faker, min_length, max_length):
 @pytest.mark.parametrize(
     "min_length,max_length",
     itertools.product(
-        (5, 11, 13),
-        (None, 7, 12, 15),
+        (0, 1, 3, 5, 11, 13),
+        (None, 3, 7, 12, 15),
     ),
 )
 def test_jsonschema_format_min_max_length_variable_singular(faker, min_length, max_length):
@@ -727,10 +727,36 @@ class TestLengthAwareFormats:
             assert 3 <= len(result) <= 10
             assert result.startswith("P")
 
+    def test_duration_with_high_min_length(self, faker, repeats_for_fast):
+        """format: duration with minLength near realistic max (18-25 chars)."""
+        schema = {
+            "type": "string",
+            "format": "duration",
+            "minLength": 18,
+            "maxLength": 25,
+        }
+        for _ in range(repeats_for_fast):
+            result = faker.from_jsonschema(schema)
+            assert 18 <= len(result) <= 25
+            assert result.startswith("P")
+
+    def test_duration_with_very_high_min_length(self, faker, repeats_for_fast):
+        """format: duration with minLength beyond realistic values (25-32 chars)."""
+        schema = {
+            "type": "string",
+            "format": "duration",
+            "minLength": 25,
+            "maxLength": 32,
+        }
+        for _ in range(repeats_for_fast):
+            result = faker.from_jsonschema(schema)
+            assert 25 <= len(result) <= 32
+            assert result.startswith("P")
+
     def test_duration_min_length_too_large(self, faker):
         """format: duration with minLength beyond max possible raises."""
         with pytest.raises(UnsatisfiableConstraintsError):
-            faker.from_jsonschema({"type": "string", "format": "duration", "minLength": 30})
+            faker.from_jsonschema({"type": "string", "format": "duration", "minLength": 33})
 
     def test_uri_reference_with_length(self, faker, repeats_for_fast):
         """format: uri-reference with length constraints."""

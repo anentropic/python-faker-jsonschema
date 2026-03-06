@@ -84,6 +84,8 @@ The `format` keyword selects a specific value generator. All supported formats a
 - `pattern` takes precedence over `format` when both are set.
 - `byte` and `binary` return Python `bytes` objects rather than `str`. If your consumer requires a `str`, decode accordingly.
 - `contentMediaType` is accepted in the schema but ignored during generation (it serves as a hint only).
+- `password` with `maxLength < 4` produces random alphanumeric strings instead of strong passwords (Faker's `password()` generator requires at least 4 characters for its character-class guarantees).
+- `duration` generates realistic calendar values (years ≤ 10, months ≤ 11, etc.) for typical lengths (up to 20 chars). When `minLength` exceeds 20, the fallback inflates component values beyond realistic ranges to reach the target. Maximum achievable length is 32 characters; `minLength > 32` raises `UnsatisfiableConstraintsError`.
 
 ---
 
