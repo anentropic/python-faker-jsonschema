@@ -98,6 +98,6 @@ The generated value must not conform to the given schema.
 "Forward even deal evidence by maintain."
 ```
 
-**Strategy:** generates values and rejects any that satisfy the `not` schema, repeating up to `max_search` times.
+**Strategy:** when the `not` schema declares a `type`, the generator preferentially picks a *different* type — since a value of a different type is guaranteed to fail validation against the `not` schema, this succeeds without any retry. With small probability it attempts same-type generation (for variety when the `not` schema has narrow constraints like `{"type": "integer", "minimum": 0, "maximum": 10}`), falling back to a different type after a few quick attempts.
 
-**Limitations:** brute-force rejection sampling. We short-circuit the `{"not": {}}` case, which forbids everything, but if the `not` schema is non-empty and very broad then generation will exhaust the search budget and raise `NoExampleFoundError`. Very narrow allowed spaces are slow.
+**Limitations:** `{"not": {}}` and `{"not": true}` forbid all values and raise `UnsatisfiableConstraintsError`. Typeless `not` schemas (e.g. `{"not": {"minimum": 5}}`) use rejection sampling since any type might match.

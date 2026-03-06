@@ -312,20 +312,18 @@ def test_jsonschema_format_min_max_length_variable_range(faker, min_length, max_
 @pytest.mark.parametrize(
     "min_length,max_length,expect_result",
     (
-        (0, 0, False),
+        (0, 0, False),  # hostname min valid length is 1
         (0, None, True),
         (0, 20, True),
         (20, 30, True),
-        (0, 5, False),  # too short
-        (70, 100, False),  # too long
+        (0, 5, True),
+        (70, 100, True),
     ),
 )
-def test_jsonschema_format_min_max_length_unconstrained(
-    faker, min_length, max_length, expect_result
-):
+def test_jsonschema_format_min_max_length_hostname(faker, min_length, max_length, expect_result):
     format_ = "hostname"
     format_type = JSONSchemaProvider.STRING_FORMATS[format_]
-    assert format_type.length_type == LengthType.UNCONSTRAINED
+    assert format_type.length_type == LengthType.VARIABLE_RANGE
 
     if not expect_result:
         with pytest.raises(UnsatisfiableConstraintsError):
@@ -536,3 +534,257 @@ def test_content_encoding_base64_direct(faker, repeats_for_fast):
         result = faker.jsonschema_string(content_encoding="base64")
         assert isinstance(result, bytes)
         assert len(result) % 4 == 0
+
+
+def test_content_encoding_base32(faker, repeats_for_fast):
+    """contentEncoding: base32 → returns base32-encoded bytes."""
+    import base64
+
+    schema = {"type": "string", "contentEncoding": "base32"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_jsonschema(schema)
+        assert isinstance(result, bytes)
+        assert len(result) % 8 == 0
+        base64.b32decode(result)  # must not raise
+
+
+def test_content_encoding_base32_direct(faker, repeats_for_fast):
+    """Direct call with content_encoding='base32'."""
+    import base64
+
+    for _ in range(repeats_for_fast):
+        result = faker.jsonschema_string(content_encoding="base32")
+        assert isinstance(result, bytes)
+        assert len(result) % 8 == 0
+        base64.b32decode(result)
+
+
+def test_content_encoding_base16(faker, repeats_for_fast):
+    """contentEncoding: base16 → returns base16 (hex) encoded bytes."""
+    import base64
+
+    schema = {"type": "string", "contentEncoding": "base16"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_jsonschema(schema)
+        assert isinstance(result, bytes)
+        assert len(result) % 2 == 0
+        base64.b16decode(result)  # must not raise
+
+
+def test_content_encoding_base16_direct(faker, repeats_for_fast):
+    """Direct call with content_encoding='base16'."""
+    import base64
+
+    for _ in range(repeats_for_fast):
+        result = faker.jsonschema_string(content_encoding="base16")
+        assert isinstance(result, bytes)
+        assert len(result) % 2 == 0
+        base64.b16decode(result)
+
+
+def test_content_encoding_7bit(faker, repeats_for_fast):
+    """contentEncoding: 7bit → returns bytes in printable ASCII range."""
+    schema = {"type": "string", "contentEncoding": "7bit"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_jsonschema(schema)
+        assert isinstance(result, bytes)
+        assert all(0x20 <= b <= 0x7E for b in result)
+
+
+def test_content_encoding_7bit_direct(faker, repeats_for_fast):
+    """Direct call with content_encoding='7bit'."""
+    for _ in range(repeats_for_fast):
+        result = faker.jsonschema_string(content_encoding="7bit")
+        assert isinstance(result, bytes)
+        assert all(0x20 <= b <= 0x7E for b in result)
+
+
+def test_content_encoding_8bit(faker, repeats_for_fast):
+    """contentEncoding: 8bit → returns bytes, allows octets > 127."""
+    schema = {"type": "string", "contentEncoding": "8bit"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_jsonschema(schema)
+        assert isinstance(result, bytes)
+        assert all(b != 0x00 for b in result)  # no NUL
+
+
+def test_content_encoding_8bit_direct(faker, repeats_for_fast):
+    """Direct call with content_encoding='8bit'."""
+    for _ in range(repeats_for_fast):
+        result = faker.jsonschema_string(content_encoding="8bit")
+        assert isinstance(result, bytes)
+        assert all(b != 0x00 for b in result)
+
+
+def test_content_encoding_binary(faker, repeats_for_fast):
+    """contentEncoding: binary → returns raw bytes."""
+    schema = {"type": "string", "contentEncoding": "binary"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_jsonschema(schema)
+        assert isinstance(result, bytes)
+
+
+def test_content_encoding_binary_direct(faker, repeats_for_fast):
+    """Direct call with content_encoding='binary'."""
+    for _ in range(repeats_for_fast):
+        result = faker.jsonschema_string(content_encoding="binary")
+        assert isinstance(result, bytes)
+
+
+def test_content_encoding_quoted_printable(faker, repeats_for_fast):
+    """contentEncoding: quoted-printable → returns valid QP bytes."""
+    import quopri
+
+    schema = {"type": "string", "contentEncoding": "quoted-printable"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_jsonschema(schema)
+        assert isinstance(result, bytes)
+        quopri.decodestring(result)  # must not raise
+
+
+def test_content_encoding_quoted_printable_direct(faker, repeats_for_fast):
+    """Direct call with content_encoding='quoted-printable'."""
+    import quopri
+
+    for _ in range(repeats_for_fast):
+        result = faker.jsonschema_string(content_encoding="quoted-printable")
+        assert isinstance(result, bytes)
+        quopri.decodestring(result)
+
+
+def test_content_encoding_unknown_falls_through(faker):
+    """Unknown contentEncoding value falls through to plain string generation."""
+    schema = {"type": "string", "contentEncoding": "x-custom"}
+    result = faker.from_jsonschema(schema)
+    assert isinstance(result, str)
+
+
+def test_content_encoding_case_insensitive(faker):
+    """ContentEncoding matching is case-insensitive."""
+    for encoding in ("BASE64", "Base64", "BASE32", "Base16", "BINARY"):
+        result = faker.from_jsonschema({"type": "string", "contentEncoding": encoding})
+        assert isinstance(result, bytes)
+
+
+# -- Length-aware format tests -----------------------------------------------
+
+
+class TestLengthAwareFormats:
+    """Verify format methods respect minLength/maxLength constraints."""
+
+    def test_email_with_length_range(self, faker, repeats_for_fast):
+        """format: email with minLength/maxLength should always succeed."""
+        schema = {"type": "string", "format": "email", "minLength": 15, "maxLength": 60}
+        for _ in range(repeats_for_fast):
+            result = faker.from_jsonschema(schema)
+            assert 15 <= len(result) <= 60
+            assert "@" in result
+
+    def test_email_exceeds_rfc_max(self, faker):
+        """format: email with minLength beyond RFC 5321 max raises."""
+        with pytest.raises(UnsatisfiableConstraintsError):
+            faker.from_jsonschema({"type": "string", "format": "email", "minLength": 300})
+
+    def test_hostname_with_min_length(self, faker, repeats_for_fast):
+        """format: hostname with minLength should produce longer hostnames."""
+        schema = {"type": "string", "format": "hostname", "minLength": 30}
+        for _ in range(repeats_for_fast):
+            result = faker.from_jsonschema(schema)
+            assert len(result) >= 30
+            assert "." in result
+
+    def test_uri_with_long_min_length(self, faker, repeats_for_fast):
+        """format: uri with large minLength should pad the path."""
+        schema = {"type": "string", "format": "uri", "minLength": 50, "maxLength": 100}
+        for _ in range(repeats_for_fast):
+            result = faker.from_jsonschema(schema)
+            assert 50 <= len(result) <= 100
+            assert result.startswith("http")
+
+    def test_json_pointer_with_length(self, faker, repeats_for_fast):
+        """format: json-pointer with length constraints."""
+        schema = {
+            "type": "string",
+            "format": "json-pointer",
+            "minLength": 10,
+            "maxLength": 30,
+        }
+        for _ in range(repeats_for_fast):
+            result = faker.from_jsonschema(schema)
+            assert 10 <= len(result) <= 30
+            assert result.startswith("/")
+
+    def test_duration_with_length(self, faker, repeats_for_fast):
+        """format: duration with length constraints."""
+        schema = {
+            "type": "string",
+            "format": "duration",
+            "minLength": 3,
+            "maxLength": 10,
+        }
+        for _ in range(repeats_for_fast):
+            result = faker.from_jsonschema(schema)
+            assert 3 <= len(result) <= 10
+            assert result.startswith("P")
+
+    def test_duration_min_length_too_large(self, faker):
+        """format: duration with minLength beyond max possible raises."""
+        with pytest.raises(UnsatisfiableConstraintsError):
+            faker.from_jsonschema({"type": "string", "format": "duration", "minLength": 30})
+
+    def test_uri_reference_with_length(self, faker, repeats_for_fast):
+        """format: uri-reference with length constraints."""
+        schema = {
+            "type": "string",
+            "format": "uri-reference",
+            "minLength": 5,
+            "maxLength": 50,
+        }
+        for _ in range(repeats_for_fast):
+            result = faker.from_jsonschema(schema)
+            assert 5 <= len(result) <= 50
+
+
+# -- Pattern + length tests -------------------------------------------------
+
+
+class TestPatternWithLength:
+    """Verify pattern+length padding for unanchored patterns."""
+
+    def test_unanchored_pattern_with_min_length(self, faker, repeats_for_fast):
+        """Unanchored pattern with minLength should pad to meet length."""
+        schema = {
+            "type": "string",
+            "pattern": "[a-z]+",
+            "minLength": 50,
+        }
+        for _ in range(repeats_for_fast):
+            result = faker.from_jsonschema(schema)
+            assert len(result) >= 50
+            assert re.search("[a-z]+", result)
+
+    def test_unanchored_pattern_with_length_range(self, faker, repeats_for_fast):
+        """Unanchored pattern with min and max length."""
+        schema = {
+            "type": "string",
+            "pattern": r"\d+",
+            "minLength": 20,
+            "maxLength": 40,
+        }
+        for _ in range(repeats_for_fast):
+            result = faker.from_jsonschema(schema)
+            assert 20 <= len(result) <= 40
+            assert re.search(r"\d+", result)
+
+    def test_anchored_pattern_with_compatible_length(self, faker, repeats_for_fast):
+        """Anchored pattern with compatible length should still work."""
+        schema = {
+            "type": "string",
+            "pattern": r"^[a-z]{5,10}$",
+            "minLength": 5,
+            "maxLength": 10,
+        }
+        for _ in range(repeats_for_fast):
+            result = faker.from_jsonschema(schema)
+            assert 5 <= len(result) <= 10
+            assert re.search(r"^[a-z]{5,10}$", result)

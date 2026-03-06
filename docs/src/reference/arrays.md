@@ -124,11 +124,11 @@ The first two positions follow the `items` tuple schemas; the extra positions ar
 [14, 8, 1, 20, 13]
 ```
 
-**Strategy:** generates candidate items one at a time, rejecting duplicates. For schemas with a finite value domain (e.g. a bounded integer range), the generator enumerates all possible values and samples without replacement.
+**Strategy:** generates candidate items one at a time, rejecting duplicates. For schemas with a small finite value domain (e.g. a bounded integer range up to 1 000 values), the generator enumerates all possible values and samples without replacement. For larger bounded integer ranges, a partial Fisher-Yates shuffle is used instead — O(k) time and memory where k is the number of items requested, with no full-domain materialisation.
 
 **Limitations:**
 
-- When the domain is large or unbounded, uniqueness is enforced by rejection sampling, which can be slow if `minItems` is close to the domain size.
+- When the domain is unbounded or of an unenumerable type (e.g. `string`), uniqueness is enforced by rejection sampling, which can be slow if `minItems` is close to the domain size.
 - Requesting more unique items than the schema's domain permits raises `UnsatisfiableConstraintsError`.
 
 ---

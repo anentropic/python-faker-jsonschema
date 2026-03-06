@@ -37,7 +37,8 @@
 **Limitations:**
 
 - `pattern` and `format` are mutually exclusive — `pattern` takes precedence when both are specified.
-- Very tight combinations of `pattern` + `minLength`/`maxLength` may exhaust the search budget and raise `NoExampleFoundError`.
+- For unanchored patterns (no `$` end anchor), short regex matches are automatically padded with random characters to meet `minLength`, since JSON Schema `pattern` uses substring matching (`re.search`).
+- Anchored patterns (`^...$`) with very tight `minLength`/`maxLength` constraints may exhaust the search budget and raise `NoExampleFoundError`.
 
 ---
 
@@ -76,7 +77,7 @@ The `format` keyword selects a specific value generator. All supported formats a
 | `byte` | `b'mRfl1duARQXk...'` | Base64-encoded bytes (`bytes` object) |
 | `binary` | `b'\xf6\xcc\x0c...'` | Raw binary bytes (`bytes` object) |
 
-**Strategy:** each format maps to a dedicated Faker generator method. The generated value is checked against any `minLength`/`maxLength` constraints; for variable-length formats, a fresh value is sampled until one fits (up to `max_search` attempts).
+**Strategy:** each format maps to a dedicated generator method. Most variable-length formats (`email`, `uri`, `hostname`, `duration`, `json-pointer`, etc.) are length-aware — they accept `minLength`/`maxLength` and produce output in that range directly, without retry. If the requested length falls outside the format's valid bounds (e.g. `minLength: 300` for `email`, which exceeds the RFC 5321 maximum of 254), an `UnsatisfiableConstraintsError` is raised. Fixed-length formats (`date`, `uuid`, etc.) ignore length constraints. The `regex` format and any unknown format resolved via Faker fall back to retry sampling (up to `max_search` attempts).
 
 **Limitations:**
 
@@ -90,6 +91,18 @@ The `format` keyword selects a specific value generator. All supported formats a
 
 ### `contentEncoding`
 
+All RFC-defined `contentEncoding` values are supported. All return `bytes`. Unknown values fall through to plain string generation.
+
+| Value | RFC | Description |
+|---|---|---|
+| `"base64"` | RFC 4648 §4 | 64-character alphabet; encoded length is a multiple of 4 |
+| `"base32"` | RFC 4648 §6 | 32-character alphabet; encoded length is a multiple of 8 |
+| `"base16"` | RFC 4648 §8 | Hex alphabet; encoded length is always even |
+| `"7bit"` | RFC 2045 §2.7 | Printable ASCII (0x20–0x7E); no NUL or bare CR/LF |
+| `"8bit"` | RFC 2045 §2.8 | Printable ASCII + octets >127; no NUL or bare CR/LF |
+| `"binary"` | RFC 2045 §2.9 | Any octet sequence |
+| `"quoted-printable"` | RFC 2045 §6.7 | Printable ASCII encoded per QP rules |
+
 ```json
 {"type": "string", "contentEncoding": "base64"}
 ```
@@ -98,6 +111,28 @@ The `format` keyword selects a specific value generator. All supported formats a
 b'dGVzdA=='
 ```
 
-**Strategy:** `"base64"` produces base64-encoded `bytes`. Only `"base64"` is currently supported.
+```json
+{"type": "string", "contentEncoding": "base32"}
+```
 
-**Limitations:** returns `bytes`, not `str`. Other encoding values (e.g. `"quoted-printable"`) are not supported and will fall through to plain string generation.
+```
+b'ORSXG5BR'
+```
+
+```json
+{"type": "string", "contentEncoding": "base16"}
+```
+
+```
+b'48656C6C6F'
+```
+
+```json
+{"type": "string", "contentEncoding": "quoted-printable"}
+```
+
+```
+b'Hello World'
+```
+
+**Note:** `minLength`/`maxLength` constrain the *encoded* output length. For `base64`, `base32`, and `base16`, an `UnsatisfiableConstraintsError` is raised if no valid encoded length can fit within the given range.

@@ -2,4 +2,11 @@
     "chat.tools.terminal.autoApprove": {
         "uv": true
     }
+    ,
+    "files.exclude": {
+        "**/__pycache__": true
+    },
+    "search.exclude": {
+        "**/__pycache__": true
+    }
 }

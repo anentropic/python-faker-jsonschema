@@ -26,3 +26,12 @@ pytest:
 test:
     just lint
     uv run pytest -v -s
+
+# Run multi-seed fuzz tests matching CI settings
+fuzz:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for seed in 1 42 12345 314159 9999999; do
+      echo "=== Fuzz seed=$seed ==="
+      SEED=$seed REPEATS_SLOW=50 REPEATS_FAST=200 uv run pytest -q
+    done
