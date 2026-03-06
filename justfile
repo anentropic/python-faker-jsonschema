@@ -35,3 +35,12 @@ fuzz:
       echo "=== Fuzz seed=$seed ==="
       SEED=$seed REPEATS_SLOW=50 REPEATS_FAST=200 uv run pytest -q
     done
+
+# Tag current version from pyproject.toml and push the tag
+release:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    version=$(uv version --short)
+    tag="v${version}"
+    git tag "${tag}"
+    git push origin "${tag}"

@@ -77,8 +77,14 @@ Releases are triggered by pushing a version tag. The workflow (`.github/workflow
 3. Tag and push:
 
 ```bash
-git tag v1.0.0
-git push origin main --tags
+just release
+```
+
+Which does...
+
+```bash
+git tag <tag>
+git push origin <tag>
 ```
 
 The tag must match `v<major>.<minor>.<patch>` with an optional pre-release suffix:
