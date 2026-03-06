@@ -314,38 +314,95 @@ def _resolve_dependent_schemas(
     return merged
 
 
+def _json_value_key(value: JsonT) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def _schema_keyword_candidates(schema: SchemaT) -> list[JsonT] | None:
+    if "const" in schema:
+        return [schema["const"]]
+    if "enum" in schema:
+        return list(schema["enum"])
+    return None
+
+
+def _merge_const_and_enum_keywords(left: SchemaT, right: SchemaT, merged: SchemaT) -> None:
+    left_candidates = _schema_keyword_candidates(left)
+    right_candidates = _schema_keyword_candidates(right)
+    if left_candidates is None and right_candidates is None:
+        return
+
+    if left_candidates is None:
+        candidates = right_candidates or []
+    elif right_candidates is None:
+        candidates = left_candidates
+    else:
+        right_keys = {_json_value_key(value) for value in right_candidates}
+        candidates = [value for value in left_candidates if _json_value_key(value) in right_keys]
+
+    base_constraints = {k: v for k, v in merged.items() if k not in ("const", "enum")}
+    valid_candidates: list[JsonT] = []
+    seen_keys: set[str] = set()
+    for value in candidates:
+        value_key = _json_value_key(value)
+        if value_key in seen_keys:
+            continue
+        seen_keys.add(value_key)
+        try:
+            validate(value, base_constraints)
+        except ValidationError:
+            continue
+        valid_candidates.append(value)
+
+    if not valid_candidates:
+        raise UnsatisfiableConstraintsError("Cannot merge incompatible const/enum constraints")
+    if len(valid_candidates) == 1:
+        merged["const"] = valid_candidates[0]
+        merged.pop("enum", None)
+    else:
+        merged["enum"] = valid_candidates
+        merged.pop("const", None)
+
+
 def _merge_schemas(left: SchemaT, right: SchemaT) -> SchemaT:
     left_type = left.get("type")
     right_type = right.get("type")
-    if left_type is None and right_type is None:
-        # Neither schema has a type — just shallow-merge keys.
-        merged = left.copy()
-        merged.update(right)
-        return merged
+    handled_attrs: set[str] = set()
     if left_type is None:
-        left = {**left, "type": right_type}
+        if right_type is not None:
+            left = {**left, "type": right_type}
     elif right_type is None:
         right = {**right, "type": left_type}
     elif left_type != right_type:
         raise UnsatisfiableConstraintsError(
             f"Cannot merge schemas with different types: {left_type} vs {right_type}"
         )
-    type_ = TypeName(left["type"])
-    attr_map = TYPE_ATTR_MERGE_RESOLVERS[type_]
+
     merged = left.copy()
-    for attr, resolver in attr_map.items():
-        this_left = left.get(attr)
-        this_right = right.get(attr)
-        try:
-            val = _merge_constraint(this_left, this_right, resolver)
-        except UnsatisfiableConstraintsError as e:
-            raise UnsatisfiableConstraintsError(
-                "Cannot merge incompatible constraints "
-                f"type: {type_}, "
-                f"{attr}: {this_left} & {attr}: {this_right}"
-            ) from e
-        if val is not None:
-            merged[attr] = val
+    if left.get("type") is not None:
+        type_ = TypeName(left["type"])
+        attr_map = TYPE_ATTR_MERGE_RESOLVERS[type_]
+        handled_attrs = set(attr_map)
+        for attr, resolver in attr_map.items():
+            this_left = left.get(attr)
+            this_right = right.get(attr)
+            try:
+                val = _merge_constraint(this_left, this_right, resolver)
+            except UnsatisfiableConstraintsError as e:
+                raise UnsatisfiableConstraintsError(
+                    "Cannot merge incompatible constraints "
+                    f"type: {type_}, "
+                    f"{attr}: {this_left} & {attr}: {this_right}"
+                ) from e
+            if val is not None:
+                merged[attr] = val
+
+    for key, value in right.items():
+        if key == "type" or key in handled_attrs or key in {"const", "enum"}:
+            continue
+        merged[key] = value
+
+    _merge_const_and_enum_keywords(left, right, merged)
     return merged
 
 
@@ -2615,9 +2672,9 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         if "const" in schema:
             return schema["const"]
 
-        # Handle if/then/else: randomly choose a branch and merge it
+        # Handle if/then/else by generating for a branch and validating.
         if "if" in schema:
-            schema = self._apply_if_then_else(schema)
+            return self._generate_if_then_else(schema)
 
         # Pre-process draft-04 through 2019-09 tuple-form items.
         # When "items" is a list of schemas it acts like "prefixItems" in
@@ -2715,16 +2772,24 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 return {}
         return negated
 
-    def _apply_if_then_else(self, schema: SchemaT) -> SchemaT:
-        """
-        Apply if/then/else by randomly choosing a branch.
+    @staticmethod
+    def _schema_accepts_value(value: JsonT, schema: SchemaT) -> bool:
+        try:
+            validate(value, schema)
+        except ValidationError:
+            return False
+        return True
 
-        Randomly decide whether to satisfy the ``if`` condition.  When
-        satisfied, merge both the ``if`` condition and ``then`` constraints
-        into the schema so the generated value satisfies the if-condition.
-        When not satisfied, merge the negation of the ``if`` condition and
-        the ``else`` constraints.  The ``if``, ``then``, and ``else``
-        keys are stripped from the returned schema.
+    def _apply_if_then_else(self, schema: SchemaT, satisfy_if: bool | None = None) -> SchemaT:
+        """
+        Build a merged branch schema for an ``if``/``then``/``else`` block.
+
+        When ``satisfy_if`` is true, merge both the ``if`` condition and
+        ``then`` constraints so generated values are biased toward the then
+        branch. When ``satisfy_if`` is false, merge the ``else`` branch and,
+        when available, a simple negation of the ``if`` condition to steer
+        generation away from the then branch. If ``satisfy_if`` is omitted,
+        a branch is chosen randomly.
 
         Merging uses :func:`_merge_schemas` (the same logic as ``allOf``)
         when both sides share a ``type``, giving proper constraint
@@ -2737,8 +2802,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         then_schema = schema.get("then", {})
         else_schema = schema.get("else", {})
 
-        # randomly choose to satisfy the if-condition or not
-        satisfy_if = self.generator.random_int(0, 1)
+        if satisfy_if is None:
+            satisfy_if = bool(self.generator.random_int(0, 1))
 
         if satisfy_if:
             # Merge if-condition + then-branch so value satisfies the if
@@ -2763,6 +2828,28 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 result = self._shallow_merge_branch(result, branch)
 
         return result
+
+    def _generate_if_then_else(self, schema: SchemaT) -> JsonT:
+        preferred_branch = bool(self.generator.random_int(0, 1))
+        branch_order = [preferred_branch, not preferred_branch]
+        last_error: Exception | None = None
+
+        for satisfy_if in branch_order:
+            branch_schema = self._apply_if_then_else(schema, satisfy_if=satisfy_if)
+            for _ in range(self.context.max_search):
+                try:
+                    candidate = self._from_schema(branch_schema)
+                except (NoExampleFoundError, UnsatisfiableConstraintsError) as error:
+                    last_error = error
+                    break
+                if self._schema_accepts_value(candidate, schema):
+                    return candidate
+
+        if isinstance(last_error, UnsatisfiableConstraintsError):
+            raise last_error
+        raise NoExampleFoundError(
+            f"Could not generate a value matching if/then/else schema {schema!r}"
+        )
 
     @staticmethod
     def _shallow_merge_branch(base: SchemaT, branch: SchemaT) -> SchemaT:
