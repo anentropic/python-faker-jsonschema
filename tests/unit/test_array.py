@@ -264,6 +264,95 @@ class TestArrayUniqueItemsEdgeCases:
             assert len(result) <= 2
             assert len(set(result)) == len(result)
 
+    def test_unique_large_integer_range(self, faker, repeats_for_slow):
+        """
+        UniqueItems with a large bounded integer range (> _FINITE_DOMAIN_MAX).
+
+        Uses the partial Fisher-Yates path, not the enumerate-all path.
+        """
+        schema = {
+            "type": "array",
+            "items": {"type": "integer", "minimum": 0, "maximum": 9999},
+            "uniqueItems": True,
+            "minItems": 200,
+            "maxItems": 200,
+        }
+        for _ in range(repeats_for_slow):
+            result = faker.from_jsonschema(schema)
+            assert isinstance(result, list)
+            assert len(result) == 200
+            assert len(set(result)) == 200, "Expected 200 distinct values"
+            assert all(0 <= x <= 9999 for x in result)
+            validate(result, schema)
+
+    def test_unique_large_integer_range_high_fill(self, faker):
+        """
+        Fisher-Yates sampler must succeed for high fill rate.
+
+        Count is a large fraction of the domain.  Run once — deterministic
+        enough.
+        """
+        n = 2000
+        schema = {
+            "type": "array",
+            "items": {"type": "integer", "minimum": 1, "maximum": n},
+            "uniqueItems": True,
+            "minItems": n - 5,
+            "maxItems": n - 5,
+        }
+        result = faker.from_jsonschema(schema)
+        assert isinstance(result, list)
+        assert len(result) == n - 5
+        assert len(set(result)) == n - 5
+
+    def test_unique_large_integer_range_multiple_of(self, faker, repeats_for_slow):
+        """Large integer range with multipleOf (domain: 0,5,10,...,9995)."""
+        schema = {
+            "type": "array",
+            "items": {"type": "integer", "minimum": 0, "maximum": 9999, "multipleOf": 5},
+            "uniqueItems": True,
+            "minItems": 100,
+            "maxItems": 100,
+        }
+        for _ in range(repeats_for_slow):
+            result = faker.from_jsonschema(schema)
+            assert isinstance(result, list)
+            assert len(result) == 100
+            assert len(set(result)) == 100
+            assert all(x % 5 == 0 for x in result)
+            validate(result, schema)
+
+    def test_sample_unique_from_integer_range_direct(self, faker):
+        """Unit test for _sample_unique_from_integer_range helper."""
+        from faker_jsonschema.provider import JSONSchemaProvider, JsonVal
+
+        provider = faker.providers[0]
+        assert isinstance(provider, JSONSchemaProvider)
+
+        # Basic: sample 5 unique values from [0, 99]
+        result = provider._sample_unique_from_integer_range(0, 99, 1, 5, set())
+        assert result is not None
+        assert len(result) == 5
+        assert len(set(result)) == 5
+        assert all(0 <= v <= 99 for v in result)
+
+        # With exclusions
+        excluded = {JsonVal(0), JsonVal(1), JsonVal(2)}
+        result2 = provider._sample_unique_from_integer_range(0, 4, 1, 2, excluded)
+        assert result2 is not None
+        assert len(result2) == 2
+        assert all(v in {3, 4} for v in result2)
+
+        # Infeasible: more requested than available after exclusions
+        result3 = provider._sample_unique_from_integer_range(0, 2, 1, 3, {JsonVal(1)})
+        assert result3 is None  # only 2 left (0 and 2), can't pick 3
+
+        # multipleOf step
+        result4 = provider._sample_unique_from_integer_range(0, 20, 5, 4, set())
+        assert result4 is not None
+        assert len(result4) == 4
+        assert all(v % 5 == 0 and 0 <= v <= 20 for v in result4)
+
 
 # ── prefixItems / additionalItems ────────────────────────────────────
 

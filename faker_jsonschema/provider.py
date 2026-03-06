@@ -1121,52 +1121,147 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
         return None
 
-    def _enumerate_integer_domain(self, schema: SchemaT) -> list[JsonT] | None:
+    @staticmethod
+    def _decode_integer_bounds(schema: SchemaT) -> tuple[int, int, int] | None:
         """
-        Enumerate all integers satisfying the schema's bounds.
+        Return ``(lo, hi, step)`` for a bounded integer schema, or ``None``.
 
-        Returns ``None`` if unbounded / too large.
+        Unlike :meth:`_enumerate_integer_domain`, no size cap is applied.
+        *step* equals ``multipleOf`` when present, otherwise 1.  *lo* is
+        already adjusted to the first valid multiple when ``multipleOf`` is
+        set.  Returns ``None`` when the schema is unbounded or the range is
+        empty / unsatisfiable.
         """
-        lo = schema.get("minimum")
-        hi = schema.get("maximum")
+        raw_lo = schema.get("minimum")
+        raw_hi = schema.get("maximum")
         excl_lo = schema.get("exclusiveMinimum")
         excl_hi = schema.get("exclusiveMaximum")
 
-        # Resolve exclusive bounds (draft-06+ numeric values take precedence)
         if excl_lo is not None:
-            eff_lo = excl_lo + 1  # integer exclusive → +1
-        elif lo is not None:
-            eff_lo = lo
+            eff_lo = excl_lo + 1
+        elif raw_lo is not None:
+            eff_lo = raw_lo
         else:
             return None  # unbounded below
 
         if excl_hi is not None:
-            eff_hi = excl_hi - 1  # integer exclusive → -1
-        elif hi is not None:
-            eff_hi = hi
+            eff_hi = excl_hi - 1
+        elif raw_hi is not None:
+            eff_hi = raw_hi
         else:
             return None  # unbounded above
 
         if eff_hi < eff_lo:
-            return []  # empty domain (unsatisfiable, but not our job here)
+            return None  # empty / unsatisfiable
 
         multiple_of = schema.get("multipleOf")
         if multiple_of is not None:
             if multiple_of <= 0:
                 return None
-            # Find first multiple >= eff_lo
             first = math.ceil(eff_lo / multiple_of) * multiple_of
             if first > eff_hi:
-                return []
-            count = (eff_hi - first) // multiple_of + 1
-            if count > self._FINITE_DOMAIN_MAX:
                 return None
-            return [int(first + i * multiple_of) for i in range(int(count))]
+            return (int(first), int(eff_hi), int(multiple_of))
 
-        count = eff_hi - eff_lo + 1
+        return (int(eff_lo), int(eff_hi), 1)
+
+    def _enumerate_integer_domain(self, schema: SchemaT) -> list[JsonT] | None:
+        """
+        Enumerate all integers satisfying the schema's bounds.
+
+        Returns ``None`` if the domain is unbounded or too large to
+        enumerate (> :attr:`_FINITE_DOMAIN_MAX`).  Returns ``[]`` when the
+        schema is bounded but unsatisfiable (empty range, no valid
+        ``multipleOf`` candidate, etc.).
+        """
+        bounds = self._decode_integer_bounds(schema)
+        if bounds is None:
+            # _decode_integer_bounds returns None for two reasons:
+            # (a) missing minimum/maximum → unbounded → return None
+            # (b) bounded but empty range → return []
+            has_lo = schema.get("exclusiveMinimum") is not None or schema.get("minimum") is not None
+            has_hi = schema.get("exclusiveMaximum") is not None or schema.get("maximum") is not None
+            return [] if (has_lo and has_hi) else None
+
+        lo, hi, step = bounds
+        count = (hi - lo) // step + 1 if step > 1 else hi - lo + 1
+
         if count > self._FINITE_DOMAIN_MAX:
             return None
-        return list(range(int(eff_lo), int(eff_hi) + 1))
+        return [lo + i * step for i in range(int(count))]
+
+    def _sample_unique_from_integer_range(
+        self,
+        lo: int,
+        hi: int,
+        step: int,
+        count: int,
+        excluded: set[JsonVal],
+    ) -> list[int] | None:
+        """
+        Sample *count* unique integers from ``{lo, lo+step, ..., hi}``.
+
+        Excluding values already present in *excluded*.
+
+        Uses a partial (partial-selection) Fisher-Yates shuffle on a
+        virtual index array, so no O(n) list materialisation is needed.
+        Time and space: O(*count*).
+
+        Returns ``None`` if fewer than *count* values are available after
+        applying exclusions.
+        """
+        n_total = (hi - lo) // step + 1
+        if count <= 0:
+            return []
+        if count > n_total:
+            return None
+
+        # Count excluded integers that actually land on a step boundary
+        # inside our range.  bool is a subclass of int, so we must
+        # explicitly exclude booleans (True/False are not integers in JSON).
+        n_excluded_in_range = sum(
+            1
+            for jv in excluded
+            if not isinstance(jv.__wrapped__, bool)
+            and isinstance(jv.__wrapped__, int)
+            and lo <= jv.__wrapped__ <= hi
+            and (jv.__wrapped__ - lo) % step == 0
+        )
+        if count > n_total - n_excluded_in_range:
+            return None
+
+        # Partial Fisher-Yates on virtual indices 0 … n_total-1.
+        # mapping[i] = logical index at slot i (implicit identity when absent).
+        # We discover excluded values lazily and swap them to the tail.
+        mapping: dict[int, int] = {}
+        result: list[int] = []
+        available_end = n_total - 1
+
+        # Safety bound: worst case we need to skip every excluded value
+        # before finding count good ones.
+        max_iters = count + n_excluded_in_range + 16
+        iters = 0
+
+        while len(result) < count and iters < max_iters:
+            iters += 1
+            front = len(result)
+            j = self.generator.random_int(front, available_end)
+            idx_j = mapping.get(j, j)
+            idx_front = mapping.get(front, front)
+            val = lo + idx_j * step
+
+            if JsonVal(val) in excluded:
+                # Move this excluded slot out of the live range
+                mapping[j] = mapping.get(available_end, available_end)
+                mapping[available_end] = idx_j
+                available_end -= 1
+            else:
+                # Accept: swap slot j into slot front
+                mapping[front] = idx_j
+                mapping[j] = idx_front
+                result.append(val)
+
+        return result if len(result) == count else None
 
     def _jsonschema_number(
         self,
@@ -1636,6 +1731,32 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 available = [v for v in contains_domain if JsonVal(v) not in used]
                 take = min(n_contains_target, len(available))
                 contains_items = self.generator.random_sample(available, length=take)
+            elif (
+                unique_items
+                and contains is not None
+                and contains.get("type") == "integer"
+                and not contains.get("nullable", False)
+            ):
+                # Large bounded integer contains schema: partial Fisher-Yates
+                bounds = self._decode_integer_bounds(contains)
+                sampled: list[int] | None = None
+                if bounds is not None:
+                    used = {JsonVal(v) for v in generated}
+                    sampled = self._sample_unique_from_integer_range(
+                        *bounds, n_contains_target, used
+                    )
+                if sampled is not None:
+                    contains_items = sampled
+                else:
+                    # Fisher-Yates unavailable (unbounded or domain too small);
+                    # fall back to retry-based generation.
+                    for _ in range(n_contains_target * 3):
+                        item = self.descend_into(self._from_schema)(contains)
+                        if unique_items and (item in generated or item in contains_items):
+                            continue
+                        contains_items.append(item)
+                        if len(contains_items) >= n_contains_target:
+                            break
             else:
                 for _ in range(n_contains_target * 3):  # retries for uniqueItems
                     item = self.descend_into(self._from_schema)(contains)
@@ -1705,6 +1826,20 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 else:
                     take = min(remaining_count, len(available))
                     remaining = self.generator.random_sample(available, length=take)
+            elif (
+                unique_items
+                and remaining_schema.get("type") == "integer"
+                and not remaining_schema.get("nullable", False)
+            ):
+                # Large bounded integer range: partial Fisher-Yates — O(count)
+                # time/space without materialising the full domain list.
+                bounds = self._decode_integer_bounds(remaining_schema)
+                if bounds is not None:
+                    used = {JsonVal(v) for v in generated + contains_items}
+                    sampled = self._sample_unique_from_integer_range(*bounds, remaining_count, used)
+                    remaining = sampled if sampled is not None else []
+                else:
+                    remaining = []
             else:
 
                 def _gen_from_schema():
