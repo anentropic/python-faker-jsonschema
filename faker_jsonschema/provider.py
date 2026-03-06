@@ -512,7 +512,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         ),
         "duration": StringFormat(
             length_type=LengthType.VARIABLE_RANGE,
-            lengths=range(3, 26),
+            lengths=range(3, 33),
         ),
         "uri-reference": StringFormat(
             length_type=LengthType.VARIABLE_RANGE,
@@ -570,6 +570,9 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         return self.generator.iso8601(tzinfo=tzinfo)
 
     def _format_password(self, length: int) -> str:
+        if length < 4:
+            # Faker's password() requires >= 4 chars for character-class guarantees
+            return self.generator.pystr(min_chars=length, max_chars=length)
         return self.generator.password(length=length)
 
     def _format_byte(self, min_length: int, max_length: int) -> bytes:
@@ -819,12 +822,14 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         minutes = remainder // 60
         return f"{t}{sign}{hours:02d}:{minutes:02d}"
 
-    def _format_duration(self, min_length: int = 0, max_length: int = 25) -> str:
+    def _format_duration(self, min_length: int = 0, max_length: int = 32) -> str:
         """
         ISO 8601 / RFC 3339 Appendix A duration, e.g. 'P3Y6M4DT12H30M5S'.
 
         Length-aware: include/omit components to hit target length.
-        Min ``P0D`` (3 chars), max ``P10Y11M30DT23H59M59S`` (20 chars).
+        Min ``P0D`` (3 chars). Normal generation uses realistic calendar
+        values (max 20 chars). Fallback inflates component values up to
+        4 digits for longer targets (max 32 chars).
         """
         # All possible components with their (suffix, max_value) pairs
         date_components = [
@@ -862,16 +867,23 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             if min_length <= len(result) <= max_length:
                 return result
 
-        # Fallback: build minimally or maximally as needed
+        # Fallback: include all components, inflating value ranges until
+        # min_length is reached (RFC 3339 allows 1*DIGIT per component)
         if min_length > 3:
-            # Include all components to maximize length
-            parts = []
-            for suffix, max_val in date_components:
-                parts.append(f"{self.generator.random_int(1, max_val)}{suffix}")
-            time_parts = []
-            for suffix, max_val in time_components:
-                time_parts.append(f"{self.generator.random_int(1, max_val)}{suffix}")
-            result = "P" + "".join(parts) + "T" + "".join(time_parts)
+            max_multiplier = 1
+            for _ in range(5):
+                parts = []
+                for suffix, max_val in date_components:
+                    hi = max(max_val, 10) * max_multiplier
+                    parts.append(f"{self.generator.random_int(1, hi)}{suffix}")
+                time_parts = []
+                for suffix, max_val in time_components:
+                    hi = max(max_val, 10) * max_multiplier
+                    time_parts.append(f"{self.generator.random_int(1, hi)}{suffix}")
+                result = "P" + "".join(parts) + "T" + "".join(time_parts)
+                if len(result) >= min_length:
+                    return result[:max_length] if len(result) > max_length else result
+                max_multiplier *= 10
             return result[:max_length] if len(result) > max_length else result
         # Minimal
         return "PT0S"[:max_length]
