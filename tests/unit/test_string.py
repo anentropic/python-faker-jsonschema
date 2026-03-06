@@ -680,6 +680,14 @@ class TestLengthAwareFormats:
             assert 15 <= len(result) <= 60
             assert "@" in result
 
+    def test_idn_email_exact_high_length(self, faker, repeats_for_fast):
+        """format: idn-email with exact high minLength=maxLength must produce valid result."""
+        schema = {"type": "string", "format": "idn-email", "minLength": 97, "maxLength": 97}
+        for _ in range(repeats_for_fast):
+            result = faker.from_jsonschema(schema)
+            validate(result, schema)
+            assert len(result) == 97
+
     def test_email_exceeds_rfc_max(self, faker):
         """format: email with minLength beyond RFC 5321 max raises."""
         with pytest.raises(UnsatisfiableConstraintsError):
