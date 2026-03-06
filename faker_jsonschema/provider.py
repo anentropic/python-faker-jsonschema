@@ -734,6 +734,17 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             label = self.generator.pystr(min_chars=label_len, max_chars=label_len)
             domain = f"{label}.{domain}"
 
+        # If domain is still short (gap was too small for another subdomain),
+        # extend the first label to make up the difference
+        if len(domain) < domain_min_len:
+            shortfall = domain_min_len - len(domain)
+            pad = self.generator.pystr(min_chars=shortfall, max_chars=shortfall)
+            first_dot = domain.find(".")
+            if first_dot > 0:
+                domain = domain[:first_dot] + pad + domain[first_dot:]
+            else:
+                domain = domain + pad
+
         # If domain is too long, generate a shorter one
         if len(domain) > domain_max_len:
             tld = self.generator.tld()
