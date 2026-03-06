@@ -41,6 +41,14 @@ def test_jsonschema_not_type_number(faker, repeats_for_slow):
         validate(result, schema)
 
 
+def test_jsonschema_not_untyped_keyword_schema(faker):
+    """Untyped not-schemas must still reject matching instances."""
+    schema = {"not": {"minimum": 0}}
+    for _ in range(200):
+        result = faker.from_jsonschema(schema)
+        validate(result, schema)
+
+
 def test_jsonschema_not_direct_call(faker, repeats_for_slow):
     """Direct call to jsonschema_not with a constrained integer schema."""
     not_schema = {"type": "integer", "minimum": 0, "maximum": 10}

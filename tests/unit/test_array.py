@@ -3,6 +3,8 @@ import itertools
 import pytest
 from jsonschema import Draft7Validator, validate
 
+from faker_jsonschema.provider import UnsatisfiableConstraintsError
+
 
 @pytest.mark.parametrize(
     "schema",
@@ -249,7 +251,7 @@ class TestArrayUniqueItemsEdgeCases:
             assert len({repr(x) for x in result}) == 3, f"Expected 3 unique items, got {result}"
 
     def test_unique_domain_cap(self, faker, repeats_for_slow):
-        """When minItems exceeds finite domain size, count is capped."""
+        """Impossible unique finite-domain requests should raise instead of truncating."""
         schema = {
             "type": "array",
             "items": {"type": "boolean"},
@@ -257,12 +259,8 @@ class TestArrayUniqueItemsEdgeCases:
             "minItems": 5,  # impossible to get 5 unique booleans
             "maxItems": 10,
         }
-        for _ in range(repeats_for_slow):
-            result = faker.from_jsonschema(schema)
-            assert isinstance(result, list)
-            # domain is only {true, false}, so we get at most 2
-            assert len(result) <= 2
-            assert len(set(result)) == len(result)
+        with pytest.raises(UnsatisfiableConstraintsError):
+            faker.from_jsonschema(schema)
 
     def test_unique_large_integer_range(self, faker, repeats_for_slow):
         """

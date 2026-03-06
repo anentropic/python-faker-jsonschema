@@ -207,16 +207,16 @@ def test_jsonschema_object_no_properties_no_additional(faker):
 
 
 def test_jsonschema_object_required_not_in_properties(faker, repeats_for_slow):
-    """Required keys not listed in properties should still be generated."""
-    for _ in range(repeats_for_slow):
-        result = faker.jsonschema_object(
-            properties={"a": {"type": "string"}},
-            required=["a", "b", "c"],
+    """Undeclared required keys are unsatisfiable when additionalProperties is false."""
+    with pytest.raises(UnsatisfiableConstraintsError):
+        faker.from_jsonschema(
+            {
+                "type": "object",
+                "properties": {"a": {"type": "string"}},
+                "required": ["a", "b", "c"],
+                "additionalProperties": False,
+            }
         )
-        assert "a" in result
-        assert "b" in result
-        assert "c" in result
-        assert isinstance(result["a"], str)
 
 
 def test_jsonschema_object_large_min_additional_only(faker):

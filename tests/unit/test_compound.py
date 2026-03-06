@@ -280,9 +280,7 @@ class TestIfThenElseEdgeCases:
         for _ in range(repeats_for_fast):
             result = faker.from_jsonschema(schema)
             assert isinstance(result, int)
-            assert result >= 0
-            # With proper merge, result is at most 150 (then) or 50 (else)
-            assert result <= 200
+            validate(result, schema)
 
     def test_if_then_else_preserves_base_constraints(self, faker, repeats_for_fast):
         """
@@ -410,6 +408,32 @@ class TestAnyOfEdgeCases:
             result = faker.from_jsonschema(schema)
             assert isinstance(result, dict)
             validate(result, schema)
+
+    def test_anyof_member_without_type(self, faker, repeats_for_slow):
+        """AnyOf should support valid sub-schemas that omit an explicit type."""
+        schema = {
+            "anyOf": [
+                {"const": 1},
+                {"type": "string", "minLength": 1},
+            ]
+        }
+        for _ in range(repeats_for_slow):
+            result = faker.from_jsonschema(schema)
+            validate(result, schema)
+
+
+def test_allof_members_without_type(faker, repeats_for_fast):
+    """AllOf should intersect valid sub-schemas even when members omit type."""
+    schema = {
+        "allOf": [
+            {"const": 1},
+            {"enum": [1, 2]},
+        ]
+    }
+    for _ in range(repeats_for_fast):
+        result = faker.from_jsonschema(schema)
+        assert result == 1
+        validate(result, schema)
 
 
 # ── Complex real-world compound schemas ──────────────────────────────

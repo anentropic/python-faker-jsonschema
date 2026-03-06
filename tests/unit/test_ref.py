@@ -99,6 +99,26 @@ def test_ref_with_sibling_keywords(faker, repeats_for_fast):
         validate(result, schema)
 
 
+def test_ref_with_sibling_object_keywords(faker, repeats_for_fast):
+    """$ref siblings should merge nested object constraints instead of overwriting them."""
+    schema = {
+        "$defs": {
+            "base": {
+                "type": "object",
+                "properties": {"a": {"type": "string"}},
+                "required": ["a"],
+                "additionalProperties": False,
+            }
+        },
+        "$ref": "#/$defs/base",
+        "properties": {"b": {"type": "integer"}},
+        "required": ["b"],
+    }
+    for _ in range(repeats_for_fast):
+        result = faker.from_jsonschema(schema)
+        validate(result, schema)
+
+
 # ── Error cases ──────────────────────────────────────────────────────
 
 
