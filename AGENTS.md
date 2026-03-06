@@ -2,7 +2,7 @@
 
 ## Project
 
-A Faker provider (`JSONSchemaProvider`) that generates fake data conforming to a given JSON Schema. The main implementation is in `faker_jsonschema/provider.py`.
+A Faker provider (`JSONSchemaProvider`) that generates fake data conforming to a given [JSON Schema](https://json-schema.org/specification). The main implementation is in `faker_jsonschema/provider.py`.
 
 ## Stack
 
