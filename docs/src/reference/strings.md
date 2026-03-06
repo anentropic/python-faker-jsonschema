@@ -90,6 +90,18 @@ The `format` keyword selects a specific value generator. All supported formats a
 
 ### `contentEncoding`
 
+All RFC-defined `contentEncoding` values are supported. All return `bytes`. Unknown values fall through to plain string generation.
+
+| Value | RFC | Description |
+|---|---|---|
+| `"base64"` | RFC 4648 §4 | 64-character alphabet; encoded length is a multiple of 4 |
+| `"base32"` | RFC 4648 §6 | 32-character alphabet; encoded length is a multiple of 8 |
+| `"base16"` | RFC 4648 §8 | Hex alphabet; encoded length is always even |
+| `"7bit"` | RFC 2045 §2.7 | Printable ASCII (0x20–0x7E); no NUL or bare CR/LF |
+| `"8bit"` | RFC 2045 §2.8 | Printable ASCII + octets >127; no NUL or bare CR/LF |
+| `"binary"` | RFC 2045 §2.9 | Any octet sequence |
+| `"quoted-printable"` | RFC 2045 §6.7 | Printable ASCII encoded per QP rules |
+
 ```json
 {"type": "string", "contentEncoding": "base64"}
 ```
@@ -98,6 +110,28 @@ The `format` keyword selects a specific value generator. All supported formats a
 b'dGVzdA=='
 ```
 
-**Strategy:** `"base64"` produces base64-encoded `bytes`. Only `"base64"` is currently supported.
+```json
+{"type": "string", "contentEncoding": "base32"}
+```
 
-**Limitations:** returns `bytes`, not `str`. Other encoding values (e.g. `"quoted-printable"`) are not supported and will fall through to plain string generation.
+```
+b'ORSXG5BR'
+```
+
+```json
+{"type": "string", "contentEncoding": "base16"}
+```
+
+```
+b'48656C6C6F'
+```
+
+```json
+{"type": "string", "contentEncoding": "quoted-printable"}
+```
+
+```
+b'Hello World'
+```
+
+**Note:** `minLength`/`maxLength` constrain the *encoded* output length. For `base64`, `base32`, and `base16`, an `UnsatisfiableConstraintsError` is raised if no valid encoded length can fit within the given range.

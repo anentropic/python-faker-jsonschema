@@ -5,10 +5,11 @@ import itertools
 import json
 import math
 import operator
+import quopri
 import re
 import sys
 import warnings
-from base64 import b64encode
+from base64 import b16encode, b32encode, b64encode
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from decimal import Decimal
@@ -585,6 +586,105 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         raw_length = self._safe_random_int(min_raw_length, max_raw_length + 1)
         return b64encode(self.generator.binary(length=raw_length))
 
+    def _encode_base32(self, min_length: int, max_length: int) -> bytes:
+        """Generate base32-encoded bytes (RFC 4648 §6). Encoded length is a multiple of 8."""
+        valid_encoded_lengths = [
+            length for length in range(min_length, max_length + 1) if length % 8 == 0
+        ]
+        if not valid_encoded_lengths:
+            raise UnsatisfiableConstraintsError(
+                f"Constraints minLength: {min_length}, maxLength: "
+                f"{max_length} are incompatible with contentEncoding: base32."
+            )
+        encoded_length = self.generator.random_element(valid_encoded_lengths)
+        if encoded_length == 0:
+            return b""
+        chunk_count = encoded_length // 8
+        min_raw_length = max(1, chunk_count * 5 - 4)
+        max_raw_length = chunk_count * 5
+        raw_length = self._safe_random_int(min_raw_length, max_raw_length + 1)
+        return b32encode(self.generator.binary(length=raw_length))
+
+    def _encode_base16(self, min_length: int, max_length: int) -> bytes:
+        """Generate base16-encoded bytes (RFC 4648 §8). Encoded length is always even."""
+        valid_encoded_lengths = [
+            length for length in range(min_length, max_length + 1) if length % 2 == 0
+        ]
+        if not valid_encoded_lengths:
+            raise UnsatisfiableConstraintsError(
+                f"Constraints minLength: {min_length}, maxLength: "
+                f"{max_length} are incompatible with contentEncoding: base16."
+            )
+        encoded_length = self.generator.random_element(valid_encoded_lengths)
+        if encoded_length == 0:
+            return b""
+        raw_length = encoded_length // 2
+        return b16encode(self.generator.binary(length=raw_length))
+
+    def _encode_7bit(self, min_length: int, max_length: int) -> bytes:
+        """Generate 7bit-encoded bytes (RFC 2045 §2.7). Printable ASCII, no NUL, no bare CR/LF."""
+        n = self._safe_random_int(min_length, max_length + 1)
+        if n == 0:
+            return b""
+        octets = list(range(0x20, 0x7F))  # 0x20–0x7E inclusive
+        return bytes(self.generator.random_elements(elements=octets, length=n, unique=False))
+
+    def _encode_8bit(self, min_length: int, max_length: int) -> bytes:
+        """
+        Generate 8bit-encoded bytes (RFC 2045 §2.8).
+
+        Allows octets >127, no NUL, no bare CR/LF.
+        """
+        n = self._safe_random_int(min_length, max_length + 1)
+        if n == 0:
+            return b""
+        octets = [*range(0x20, 0x7F), *range(0x80, 0x100)]
+        return bytes(self.generator.random_elements(elements=octets, length=n, unique=False))
+
+    def _encode_binary(self, min_length: int, max_length: int) -> bytes:
+        """Generate binary-encoded bytes (RFC 2045 §2.9). Any octet sequence."""
+        n = self._safe_random_int(min_length, max_length + 1)
+        return self.generator.binary(length=n)
+
+    # Printable ASCII chars safe for QP input: 0x21–0x7E excluding '=' (0x3D)
+    _QP_INPUT_CHARS: Final[list[int]] = [c for c in range(0x21, 0x7F) if c != 0x3D]
+
+    def _encode_quoted_printable(self, min_length: int, max_length: int) -> bytes:
+        r"""
+        Generate quoted-printable-encoded bytes (RFC 2045 §6.7).
+
+        Input uses only printable ASCII excluding '=', so chars encode 1:1.
+        The only expansion is soft line breaks (=\r\n every 76 chars, ~4%
+        overhead). A retry loop adjusts raw input length until the encoded
+        output falls within [min_length, max_length].
+        """
+        # Estimate: encoded ≈ raw + (raw // 76) * 3
+        # Start below max to account for line-break overhead
+        target = (min_length + max_length) // 2
+        raw_length = max(0, int(target * 0.95))
+        for _ in range(self.context.max_search):
+            if raw_length == 0:
+                encoded = b""
+            else:
+                raw = bytes(
+                    self.generator.random_elements(
+                        elements=self._QP_INPUT_CHARS, length=raw_length, unique=False
+                    )
+                )
+                encoded = quopri.encodestring(raw, quotetabs=True)
+            encoded_len = len(encoded)
+            if min_length <= encoded_len <= max_length:
+                return encoded
+            # Adjust: if too short grow, if too long shrink
+            if encoded_len < min_length:
+                raw_length += max(1, (min_length - encoded_len))
+            else:
+                raw_length = max(0, raw_length - max(1, (encoded_len - max_length)))
+        raise UnsatisfiableConstraintsError(
+            f"Constraints minLength: {min_length}, maxLength: "
+            f"{max_length} are incompatible with contentEncoding: quoted-printable."
+        )
+
     def _format_binary(self, length: int) -> bytes:
         return self.generator.binary(length=length)
 
@@ -792,13 +892,25 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             raise ValueError("maxLength must be >= minLength")
 
         # Handle contentEncoding (draft 2019-09+)
-        # When contentEncoding is "base64", generate base64-encoded content
-        if content_encoding is not None and content_encoding.lower() == "base64":
-            return self._format_byte(
-                min_length=min_length,
-                max_length=max_length if max_length is not None else 255,
-            )
-            # For unknown encodings, fall through to normal generation
+        if content_encoding is not None:
+            _max = max_length if max_length is not None else 255
+            match content_encoding.lower():
+                case "base64":
+                    return self._format_byte(min_length=min_length, max_length=_max)
+                case "base32":
+                    return self._encode_base32(min_length=min_length, max_length=_max)
+                case "base16":
+                    return self._encode_base16(min_length=min_length, max_length=_max)
+                case "7bit":
+                    return self._encode_7bit(min_length=min_length, max_length=_max)
+                case "8bit":
+                    return self._encode_8bit(min_length=min_length, max_length=_max)
+                case "binary":
+                    return self._encode_binary(min_length=min_length, max_length=_max)
+                case "quoted-printable":
+                    return self._encode_quoted_printable(min_length=min_length, max_length=_max)
+                case _:
+                    pass  # Unknown encoding: fall through to normal string generation
 
         def is_valid(val) -> bool:
             if len(val) < min_length:
