@@ -236,7 +236,7 @@ class TestIfThenElseEdgeCases:
     """Verify if/then/else merging and generation."""
 
     def test_if_then_else_with_required(self, faker, repeats_for_slow):
-        """if/then/else adding required properties."""
+        """if/then/else adds required properties on the correct branch."""
         schema = {
             "type": "object",
             "properties": {
@@ -253,10 +253,21 @@ class TestIfThenElseEdgeCases:
                 "required": ["name"],
             },
         }
+        saw_then = False
+        saw_else = False
         for _ in range(repeats_for_slow):
             result = faker.from_jsonschema(schema)
             assert isinstance(result, dict)
             assert "type" in result
+            validate(result, schema)
+            if "company" in result:
+                saw_then = True
+                assert result["type"] == "business"
+            if "name" in result:
+                saw_else = True
+                assert result["type"] != "business"
+        assert saw_then, "then-branch was never observed"
+        assert saw_else, "else-branch was never observed"
 
     def test_if_then_else_integer_constraints(self, faker, repeats_for_fast):
         """
@@ -456,6 +467,30 @@ def test_allof_members_without_type(faker, repeats_for_fast):
         result = faker.from_jsonschema(schema)
         assert result == 1
         validate(result, schema)
+
+
+def test_allof_conflicting_const_without_type_raises(faker):
+    """AllOf with conflicting untyped const values is unsatisfiable."""
+    schema = {
+        "allOf": [
+            {"const": 1},
+            {"const": 2},
+        ]
+    }
+    with pytest.raises(UnsatisfiableConstraintsError):
+        faker.from_jsonschema(schema)
+
+
+def test_allof_disjoint_enum_without_type_raises(faker):
+    """AllOf with disjoint untyped enums is unsatisfiable."""
+    schema = {
+        "allOf": [
+            {"enum": [1, 2]},
+            {"enum": [3, 4]},
+        ]
+    }
+    with pytest.raises(UnsatisfiableConstraintsError):
+        faker.from_jsonschema(schema)
 
 
 # ── Complex real-world compound schemas ──────────────────────────────
