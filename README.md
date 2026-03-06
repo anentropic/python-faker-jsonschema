@@ -49,19 +49,6 @@ JSON Schema has some property specs defined as regex in JS syntax. So we need a 
 
 And then we needed a way to generate random values that match such a regex, for this we make use of the brilliant [Hypothesis](https://hypothesis.readthedocs.io/en/latest/) Property-based testing library, which has a handy `from_regex()` generation strategy. We also have some PBT tests using Hypothesis for its intended purpose.
 
-## Development
+## Contributing
 
-This project uses [uv](https://docs.astral.sh/uv/) for dependency and environment management.
-Python 3.11+ is required.
-
-```bash
-uv sync --group dev
-uv run pytest
-uv run ruff check .
-just test
-```
-
-## TODOs
-
-- republish improved `js-regex` as new lib
-- make regex support optional to avoid Hypothesis dependency, or implement own regex generation strategy
+See [MAINTAINER.md](MAINTAINER.md) for development setup, common tasks, and release instructions.
