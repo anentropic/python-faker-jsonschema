@@ -124,7 +124,11 @@ JsonT = StrT | int | float | bool | None | list["JsonT"] | dict[str, "JsonT"]
 
 SchemaT = dict[str, JsonT]
 
-type_getter = operator.itemgetter("type")
+_NO_TYPE = "__no_type__"
+
+
+def type_getter(schema):
+    return schema.get("type", _NO_TYPE)
 
 
 @dataclass
@@ -1596,11 +1600,12 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         # multiple_of must be > 0
 
         # Draft-06+ numeric exclusiveMinimum/exclusiveMaximum
-        # These take precedence over the draft-04 boolean form
-        if exclusive_minimum is not None:
+        # These take precedence over the draft-04 boolean form.
+        # When both forms are present, use the stricter (tighter) bound.
+        if exclusive_minimum is not None and (minimum is None or exclusive_minimum >= minimum):
             minimum = exclusive_minimum
             exclusive_min = True
-        if exclusive_maximum is not None:
+        if exclusive_maximum is not None and (maximum is None or exclusive_maximum <= maximum):
             maximum = exclusive_maximum
             exclusive_max = True
 
@@ -1769,13 +1774,26 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
         Randomly choose a type. Randomly combine one or more of the given
         schemas of that type according to the rules for `allOf`.
+        Schemas without an explicit ``type`` (e.g. ``{"const": 1}``) are
+        each treated as a standalone candidate.
         """
         schema_map = {
             k: list(v) for k, v in itertools.groupby(sorted(schemas, key=type_getter), type_getter)
         }
-        type_ = self.generator.random_element(schema_map.keys())
-        type_schemas = schema_map[type_]
-        sub_schemas = self.generator.random_sample(type_schemas, length=None)
+        # Untyped schemas are standalone candidates — pick one directly
+        untyped = schema_map.pop(_NO_TYPE, [])
+        candidates: list[SchemaT] = []
+        for type_key, type_schemas in schema_map.items():
+            candidates.append(("typed", type_key, type_schemas))
+        for s in untyped:
+            candidates.append(("untyped", None, [s]))
+        if not candidates:
+            raise UnsatisfiableConstraintsError("anyOf has no candidate schemas")
+        choice = self.generator.random_element(candidates)
+        kind, type_key, group = choice
+        if kind == "untyped":
+            return self._from_schema(group[0])
+        sub_schemas = self.generator.random_sample(group, length=None)
         schema = compound_schema(sub_schemas)
         return self._from_schema(schema)
 
@@ -1790,10 +1808,15 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
         If they are all the same type we should AND their validation
         restrictions together and return for that.
+        Schemas without an explicit ``type`` are merged in without
+        type-conflict checks (``_merge_schemas`` propagates the type
+        from the typed side).
         """
         schema_map = {
             k: list(v) for k, v in itertools.groupby(sorted(schemas, key=type_getter), type_getter)
         }
+        # Untyped schemas are compatible with any type — don’t count as a conflict
+        schema_map.pop(_NO_TYPE, None)
         if len(schema_map) > 1:
             raise UnsatisfiableConstraintsError(
                 f"Cannot satisfy allOf multiple types: {set(schema_map.keys())}"
@@ -1902,6 +1925,34 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                     if not is_valid(example):
                         return example
                 # Quick search failed — fall back to a different type
+            elif not_type is None:
+                # Untyped schema — must validate the generated value
+                for _ in range(_QUICK_TRIES):
+                    example = generator()
+                    if not is_valid(example):
+                        return example
+                # Random generation failed; try targeted inversion for
+                # numeric keyword schemas (e.g. {"minimum": 0})
+                if isinstance(schema, dict):
+                    inverted = self._invert_numeric_not_schema(schema)
+                    if inverted is not None:
+                        try:
+                            result = self._from_schema(inverted)
+                            if not is_valid(result):
+                                return result
+                        except (UnsatisfiableConstraintsError, NoExampleFoundError):
+                            pass
+                    inverted_str = self._invert_string_not_schema(schema)
+                    if inverted_str is not None:
+                        try:
+                            result = self._from_schema(inverted_str)
+                            if not is_valid(result):
+                                return result
+                        except (UnsatisfiableConstraintsError, NoExampleFoundError):
+                            pass
+                raise NoExampleFoundError(
+                    f"Could not generate a value not matching untyped schema {schema!r}"
+                )
             else:
                 # Different type chosen randomly — no retry needed
                 return generator()
@@ -1909,6 +1960,46 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         # Pick a type that's different from the NOT schema's type
         type_, generator = self._random_type_method_excluding(not_type)
         return generator()
+
+    @staticmethod
+    def _invert_numeric_not_schema(schema: SchemaT) -> SchemaT | None:
+        """
+        Build a numeric schema whose values violate the given constraints.
+
+        Returns ``None`` if the schema has no invertible numeric keywords.
+        """
+        _NUMERIC_KW = {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"}
+        if not (set(schema.keys()) & _NUMERIC_KW):
+            return None
+        inverted: SchemaT = {"type": "number"}
+        if "minimum" in schema:
+            inverted["exclusiveMaximum"] = schema["minimum"]
+        if "maximum" in schema:
+            inverted["exclusiveMinimum"] = schema["maximum"]
+        if "exclusiveMinimum" in schema:
+            inverted["maximum"] = schema["exclusiveMinimum"]
+        if "exclusiveMaximum" in schema:
+            inverted["minimum"] = schema["exclusiveMaximum"]
+        return inverted
+
+    @staticmethod
+    def _invert_string_not_schema(schema: SchemaT) -> SchemaT | None:
+        """
+        Build a string schema whose values violate the given constraints.
+
+        Returns ``None`` if the schema has no invertible string keywords.
+        """
+        _STRING_KW = {"minLength", "maxLength", "pattern"}
+        if not (set(schema.keys()) & _STRING_KW):
+            return None
+        inverted: SchemaT = {"type": "string"}
+        if "minLength" in schema and schema["minLength"] > 0:
+            inverted["maxLength"] = schema["minLength"] - 1
+        elif "maxLength" in schema:
+            inverted["minLength"] = schema["maxLength"] + 1
+        else:
+            return None
+        return inverted
 
     def _get_collection_max(self, min_: int):
         if min_ > self.context.default_collection_max:
@@ -2045,8 +2136,14 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                         total_unique = None
                 else:
                     total_unique = len(domain) + n_prefix
-                if total_unique is not None and count > total_unique:
-                    count = max(effective_min, min(count, total_unique))
+                if total_unique is not None:
+                    if total_unique < min_items:
+                        raise UnsatisfiableConstraintsError(
+                            f"Cannot generate {min_items} unique items "
+                            f"from a domain of size {total_unique}"
+                        )
+                    if count > total_unique:
+                        count = max(effective_min, min(count, total_unique))
 
         # Generate prefix items
         generated: list[JsonT] = []
@@ -2272,6 +2369,19 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                     f"Cannot satisfy minProperties: {min_properties} when "
                     f"there are {_available} properties in schema and "
                     f"additionalProperties is False."
+                )
+
+        if not _allows_additional and required:
+            declared = set((properties or {}).keys())
+            undeclared = set(required) - declared
+            if pattern_properties:
+                undeclared = {
+                    k for k in undeclared if not any(re.search(p, k) for p in pattern_properties)
+                }
+            if undeclared:
+                raise UnsatisfiableConstraintsError(
+                    f"Required properties {undeclared} not declared in "
+                    f"properties and additionalProperties is false."
                 )
 
         og_max_properties = max_properties
@@ -2554,14 +2664,55 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             type_ = TypeName(type_val)
             return self._jsonschema_basic_type_from_schema(schema, type_)
 
+    _NEGATABLE_NUMERIC_KEYS = {
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+    }
+    _NEGATABLE_STRING_KEYS = {"minLength", "maxLength"}
+
+    @staticmethod
+    def _negate_if_constraints(if_schema: SchemaT) -> SchemaT:
+        """
+        Invert simple keyword constraints from an ``if`` schema.
+
+        Returns a schema whose constraints are the logical negation of
+        the if-schema's keyword constraints.  Only handles flat numeric
+        and string-length keywords; complex or nested schemas return
+        an empty dict (best-effort).
+        """
+        negated: SchemaT = {}
+        for key, val in if_schema.items():
+            if key == "type":
+                continue
+            elif key == "minimum":
+                negated["exclusiveMaximum"] = val
+            elif key == "maximum":
+                negated["exclusiveMinimum"] = val
+            elif key == "exclusiveMinimum":
+                negated["maximum"] = val
+            elif key == "exclusiveMaximum":
+                negated["minimum"] = val
+            elif key == "minLength":
+                if val > 0:
+                    negated["maxLength"] = val - 1
+            elif key == "maxLength":
+                negated["minLength"] = val + 1
+            else:
+                # Can't negate complex keywords — skip
+                return {}
+        return negated
+
     def _apply_if_then_else(self, schema: SchemaT) -> SchemaT:
         """
         Apply if/then/else by randomly choosing a branch.
 
         Randomly decide whether to satisfy the ``if`` condition.  When
-        satisfied and ``then`` is present, merge ``then`` constraints into
-        the schema.  When not satisfied and ``else`` is present, merge
-        ``else`` constraints instead.  The ``if``, ``then``, and ``else``
+        satisfied, merge both the ``if`` condition and ``then`` constraints
+        into the schema so the generated value satisfies the if-condition.
+        When not satisfied, merge the negation of the ``if`` condition and
+        the ``else`` constraints.  The ``if``, ``then``, and ``else``
         keys are stripped from the returned schema.
 
         Merging uses :func:`_merge_schemas` (the same logic as ``allOf``)
@@ -2571,29 +2722,34 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         base schema has no ``type``.
         """
         result = {k: v for k, v in schema.items() if k not in ("if", "then", "else")}
+        if_schema = schema.get("if", {})
         then_schema = schema.get("then", {})
         else_schema = schema.get("else", {})
 
         # randomly choose to satisfy the if-condition or not
         satisfy_if = self.generator.random_int(0, 1)
 
-        branch = then_schema if satisfy_if else else_schema
-        if not branch:
+        if satisfy_if:
+            # Merge if-condition + then-branch so value satisfies the if
+            branches = [s for s in [if_schema, then_schema] if s]
+        else:
+            # Merge negated if-condition + else-branch
+            negated_if = self._negate_if_constraints(if_schema) if if_schema else {}
+            branches = [s for s in [negated_if, else_schema] if s]
+
+        if not branches:
             return result
 
         base_type = result.get("type")
-        if base_type is not None and not isinstance(base_type, list):
-            # Propagate type into the branch so _merge_schemas can match.
-            branch_with_type = {"type": base_type, **branch}
-            try:
-                result = _merge_schemas(result, branch_with_type)
-            except (UnsatisfiableConstraintsError, KeyError):
-                # Fall through to shallow merge if something goes wrong
-                # (e.g., incompatible constraints — generate anyway and
-                # let the caller deal with the result).
+        for branch in branches:
+            if base_type is not None and not isinstance(base_type, list):
+                branch_with_type = {"type": base_type, **branch}
+                try:
+                    result = _merge_schemas(result, branch_with_type)
+                except (UnsatisfiableConstraintsError, KeyError):
+                    result = self._shallow_merge_branch(result, branch)
+            else:
                 result = self._shallow_merge_branch(result, branch)
-        else:
-            result = self._shallow_merge_branch(result, branch)
 
         return result
 
@@ -2671,7 +2827,15 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         # Merge sibling keywords alongside $ref (draft 2019-09+)
         extra = {k: v for k, v in schema.items() if k != "$ref"}
         if extra:
-            resolved = {**resolved, **extra}
+            resolved_type = resolved.get("type")
+            if resolved_type and not isinstance(resolved_type, list):
+                extra_with_type = {"type": resolved_type, **extra}
+                try:
+                    resolved = _merge_schemas(resolved, extra_with_type)
+                except UnsatisfiableConstraintsError:
+                    resolved = {**resolved, **extra}
+            else:
+                resolved = self._shallow_merge_branch(resolved, extra)
 
         return resolved
 

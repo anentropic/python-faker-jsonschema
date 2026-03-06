@@ -368,6 +368,28 @@ class TestIfThenElseEdgeCases:
             assert isinstance(result["value"], int)
             assert result["value"] >= 0
 
+    def test_if_then_else_else_branch_needs_negation(self, faker, repeats_for_fast):
+        """
+        Else branch requires if-condition negation to produce valid values.
+
+        Base: integer 0–200
+        if minimum >= 50 → then maximum 100  (valid range: 50–100)
+        else → multipleOf 7  (without negation could generate 56, 63, …
+               which satisfy if but not then; with negation range is 0–49)
+        """
+        schema = {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 200,
+            "if": {"minimum": 50},
+            "then": {"maximum": 100},
+            "else": {"multipleOf": 7},
+        }
+        for _ in range(repeats_for_fast):
+            result = faker.from_jsonschema(schema)
+            assert isinstance(result, int)
+            validate(result, schema)
+
 
 # ── anyOf edge cases ─────────────────────────────────────────────────
 
