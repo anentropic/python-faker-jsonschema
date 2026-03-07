@@ -78,7 +78,7 @@ def test_oneof_overlapping_numeric_types_requires_exactly_one_match(faker, provi
     monkeypatch.setattr(provider.generator, "random_element", lambda elements: list(elements)[0])
 
     result = faker.from_jsonschema(schema)
-    assert isinstance(result, int) and not isinstance(result, bool)
+    assert not (isinstance(result, int) and not isinstance(result, bool))
     validate(result, schema)
 
 

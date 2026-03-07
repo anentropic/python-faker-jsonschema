@@ -537,11 +537,11 @@ def test_from_schema_string_format_binary_round_trip(faker, repeats_for_fast):
 
 
 def test_content_encoding_base64(faker, repeats_for_fast):
-    """contentEncoding: base64 → returns base64-encoded bytes."""
+    """contentEncoding: base64 → returns a base64-encoded string."""
     schema = {"type": "string", "contentEncoding": "base64"}
     for _ in range(repeats_for_fast):
         result = faker.from_jsonschema(schema)
-        assert isinstance(result, bytes)
+        assert isinstance(result, str)
         # should be valid base64 (length multiple of 4)
         assert len(result) % 4 == 0
 
@@ -550,18 +550,18 @@ def test_content_encoding_base64_direct(faker, repeats_for_fast):
     """Direct call with content_encoding='base64'."""
     for _ in range(repeats_for_fast):
         result = faker.jsonschema_string(content_encoding="base64")
-        assert isinstance(result, bytes)
+        assert isinstance(result, str)
         assert len(result) % 4 == 0
 
 
 def test_content_encoding_base32(faker, repeats_for_fast):
-    """contentEncoding: base32 → returns base32-encoded bytes."""
+    """contentEncoding: base32 → returns a base32-encoded string."""
     import base64
 
     schema = {"type": "string", "contentEncoding": "base32"}
     for _ in range(repeats_for_fast):
         result = faker.from_jsonschema(schema)
-        assert isinstance(result, bytes)
+        assert isinstance(result, str)
         assert len(result) % 8 == 0
         base64.b32decode(result)  # must not raise
 
@@ -572,19 +572,19 @@ def test_content_encoding_base32_direct(faker, repeats_for_fast):
 
     for _ in range(repeats_for_fast):
         result = faker.jsonschema_string(content_encoding="base32")
-        assert isinstance(result, bytes)
+        assert isinstance(result, str)
         assert len(result) % 8 == 0
         base64.b32decode(result)
 
 
 def test_content_encoding_base16(faker, repeats_for_fast):
-    """contentEncoding: base16 → returns base16 (hex) encoded bytes."""
+    """contentEncoding: base16 → returns a base16 (hex) encoded string."""
     import base64
 
     schema = {"type": "string", "contentEncoding": "base16"}
     for _ in range(repeats_for_fast):
         result = faker.from_jsonschema(schema)
-        assert isinstance(result, bytes)
+        assert isinstance(result, str)
         assert len(result) % 2 == 0
         base64.b16decode(result)  # must not raise
 
@@ -595,68 +595,68 @@ def test_content_encoding_base16_direct(faker, repeats_for_fast):
 
     for _ in range(repeats_for_fast):
         result = faker.jsonschema_string(content_encoding="base16")
-        assert isinstance(result, bytes)
+        assert isinstance(result, str)
         assert len(result) % 2 == 0
         base64.b16decode(result)
 
 
 def test_content_encoding_7bit(faker, repeats_for_fast):
-    """contentEncoding: 7bit → returns bytes in printable ASCII range."""
+    """contentEncoding: 7bit → returns a string in printable ASCII range."""
     schema = {"type": "string", "contentEncoding": "7bit"}
     for _ in range(repeats_for_fast):
         result = faker.from_jsonschema(schema)
-        assert isinstance(result, bytes)
-        assert all(0x20 <= b <= 0x7E for b in result)
+        assert isinstance(result, str)
+        assert all(0x20 <= ord(char) <= 0x7E for char in result)
 
 
 def test_content_encoding_7bit_direct(faker, repeats_for_fast):
     """Direct call with content_encoding='7bit'."""
     for _ in range(repeats_for_fast):
         result = faker.jsonschema_string(content_encoding="7bit")
-        assert isinstance(result, bytes)
-        assert all(0x20 <= b <= 0x7E for b in result)
+        assert isinstance(result, str)
+        assert all(0x20 <= ord(char) <= 0x7E for char in result)
 
 
 def test_content_encoding_8bit(faker, repeats_for_fast):
-    """contentEncoding: 8bit → returns bytes, allows octets > 127."""
+    """contentEncoding: 8bit → returns a string with no NUL characters."""
     schema = {"type": "string", "contentEncoding": "8bit"}
     for _ in range(repeats_for_fast):
         result = faker.from_jsonschema(schema)
-        assert isinstance(result, bytes)
-        assert all(b != 0x00 for b in result)  # no NUL
+        assert isinstance(result, str)
+        assert all(ord(char) != 0x00 for char in result)  # no NUL
 
 
 def test_content_encoding_8bit_direct(faker, repeats_for_fast):
     """Direct call with content_encoding='8bit'."""
     for _ in range(repeats_for_fast):
         result = faker.jsonschema_string(content_encoding="8bit")
-        assert isinstance(result, bytes)
-        assert all(b != 0x00 for b in result)
+        assert isinstance(result, str)
+        assert all(ord(char) != 0x00 for char in result)
 
 
 def test_content_encoding_binary(faker, repeats_for_fast):
-    """contentEncoding: binary → returns raw bytes."""
+    """contentEncoding: binary → returns a string representation of binary data."""
     schema = {"type": "string", "contentEncoding": "binary"}
     for _ in range(repeats_for_fast):
         result = faker.from_jsonschema(schema)
-        assert isinstance(result, bytes)
+        assert isinstance(result, str)
 
 
 def test_content_encoding_binary_direct(faker, repeats_for_fast):
     """Direct call with content_encoding='binary'."""
     for _ in range(repeats_for_fast):
         result = faker.jsonschema_string(content_encoding="binary")
-        assert isinstance(result, bytes)
+        assert isinstance(result, str)
 
 
 def test_content_encoding_quoted_printable(faker, repeats_for_fast):
-    """contentEncoding: quoted-printable → returns valid QP bytes."""
+    """contentEncoding: quoted-printable → returns a valid QP string."""
     import quopri
 
     schema = {"type": "string", "contentEncoding": "quoted-printable"}
     for _ in range(repeats_for_fast):
         result = faker.from_jsonschema(schema)
-        assert isinstance(result, bytes)
+        assert isinstance(result, str)
         quopri.decodestring(result)  # must not raise
 
 
@@ -666,7 +666,7 @@ def test_content_encoding_quoted_printable_direct(faker, repeats_for_fast):
 
     for _ in range(repeats_for_fast):
         result = faker.jsonschema_string(content_encoding="quoted-printable")
-        assert isinstance(result, bytes)
+        assert isinstance(result, str)
         quopri.decodestring(result)
 
 
@@ -681,7 +681,7 @@ def test_content_encoding_case_insensitive(faker):
     """ContentEncoding matching is case-insensitive."""
     for encoding in ("BASE64", "Base64", "BASE32", "Base16", "BINARY"):
         result = faker.from_jsonschema({"type": "string", "contentEncoding": encoding})
-        assert isinstance(result, bytes)
+        assert isinstance(result, str)
 
 
 def test_from_schema_content_encoding_base64_round_trip(faker, repeats_for_fast):

@@ -528,13 +528,13 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         ),
         "byte": StringFormat(
             length_type=LengthType.VARIABLE_RANGE,
-            return_type=bytes,
+            return_type=str,
             # returned length is a multiple of 4 (default maxLength is 255)
             lengths=range(0, 256, 4),
         ),
         "binary": StringFormat(
             length_type=LengthType.VARIABLE_SINGULAR,
-            return_type=bytes,
+            return_type=str,
         ),
         # mentioned in OpenAPI spec as examples:
         # ----------
@@ -636,9 +636,9 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             return self.generator.pystr(min_chars=length, max_chars=length)
         return self.generator.password(length=length)
 
-    def _format_byte(self, min_length: int, max_length: int) -> bytes:
+    def _format_byte(self, min_length: int, max_length: int) -> str:
         """
-        Generate base64-encoded bytes.
+        Generate a base64-encoded string.
 
         Base64 values always have length which is a multiple of 4
         and the encoded value will be 4/3 * longer than the original.
@@ -654,16 +654,16 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
 
         encoded_length = self.generator.random_element(valid_encoded_lengths)
         if encoded_length == 0:
-            return b""
+            return ""
 
         chunk_count = encoded_length // 4
         min_raw_length = max(1, (chunk_count * 3) - 2)
         max_raw_length = chunk_count * 3
         raw_length = self._safe_random_int(min_raw_length, max_raw_length + 1)
-        return b64encode(self.generator.binary(length=raw_length))
+        return b64encode(self.generator.binary(length=raw_length)).decode("ascii")
 
-    def _encode_base32(self, min_length: int, max_length: int) -> bytes:
-        """Generate base32-encoded bytes (RFC 4648 §6). Encoded length is a multiple of 8."""
+    def _encode_base32(self, min_length: int, max_length: int) -> str:
+        """Generate a base32-encoded string (RFC 4648 §6)."""
         valid_encoded_lengths = [
             length for length in range(min_length, max_length + 1) if length % 8 == 0
         ]
@@ -674,15 +674,15 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             )
         encoded_length = self.generator.random_element(valid_encoded_lengths)
         if encoded_length == 0:
-            return b""
+            return ""
         chunk_count = encoded_length // 8
         min_raw_length = max(1, chunk_count * 5 - 4)
         max_raw_length = chunk_count * 5
         raw_length = self._safe_random_int(min_raw_length, max_raw_length + 1)
-        return b32encode(self.generator.binary(length=raw_length))
+        return b32encode(self.generator.binary(length=raw_length)).decode("ascii")
 
-    def _encode_base16(self, min_length: int, max_length: int) -> bytes:
-        """Generate base16-encoded bytes (RFC 4648 §8). Encoded length is always even."""
+    def _encode_base16(self, min_length: int, max_length: int) -> str:
+        """Generate a base16-encoded string (RFC 4648 §8)."""
         valid_encoded_lengths = [
             length for length in range(min_length, max_length + 1) if length % 2 == 0
         ]
@@ -693,41 +693,45 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             )
         encoded_length = self.generator.random_element(valid_encoded_lengths)
         if encoded_length == 0:
-            return b""
+            return ""
         raw_length = encoded_length // 2
-        return b16encode(self.generator.binary(length=raw_length))
+        return b16encode(self.generator.binary(length=raw_length)).decode("ascii")
 
-    def _encode_7bit(self, min_length: int, max_length: int) -> bytes:
-        """Generate 7bit-encoded bytes (RFC 2045 §2.7). Printable ASCII, no NUL, no bare CR/LF."""
+    def _encode_7bit(self, min_length: int, max_length: int) -> str:
+        """Generate a 7bit string (RFC 2045 §2.7)."""
         n = self._safe_random_int(min_length, max_length + 1)
         if n == 0:
-            return b""
+            return ""
         octets = list(range(0x20, 0x7F))  # 0x20–0x7E inclusive
-        return bytes(self.generator.random_elements(elements=octets, length=n, unique=False))
+        return bytes(
+            self.generator.random_elements(elements=octets, length=n, unique=False)
+        ).decode("ascii")
 
-    def _encode_8bit(self, min_length: int, max_length: int) -> bytes:
+    def _encode_8bit(self, min_length: int, max_length: int) -> str:
         """
-        Generate 8bit-encoded bytes (RFC 2045 §2.8).
+        Generate an 8bit string (RFC 2045 §2.8).
 
         Allows octets >127, no NUL, no bare CR/LF.
         """
         n = self._safe_random_int(min_length, max_length + 1)
         if n == 0:
-            return b""
+            return ""
         octets = [*range(0x20, 0x7F), *range(0x80, 0x100)]
-        return bytes(self.generator.random_elements(elements=octets, length=n, unique=False))
+        return bytes(
+            self.generator.random_elements(elements=octets, length=n, unique=False)
+        ).decode("latin1")
 
-    def _encode_binary(self, min_length: int, max_length: int) -> bytes:
-        """Generate binary-encoded bytes (RFC 2045 §2.9). Any octet sequence."""
+    def _encode_binary(self, min_length: int, max_length: int) -> str:
+        """Generate a binary string representation (RFC 2045 §2.9)."""
         n = self._safe_random_int(min_length, max_length + 1)
-        return self.generator.binary(length=n)
+        return self.generator.binary(length=n).decode("latin1")
 
     # Printable ASCII chars safe for QP input: 0x21–0x7E excluding '=' (0x3D)
     _QP_INPUT_CHARS: Final[list[int]] = [c for c in range(0x21, 0x7F) if c != 0x3D]
 
-    def _encode_quoted_printable(self, min_length: int, max_length: int) -> bytes:
+    def _encode_quoted_printable(self, min_length: int, max_length: int) -> str:
         r"""
-        Generate quoted-printable-encoded bytes (RFC 2045 §6.7).
+        Generate a quoted-printable string (RFC 2045 §6.7).
 
         Input uses only printable ASCII excluding '=', so chars encode 1:1.
         The only expansion is soft line breaks (=\r\n every 76 chars, ~4%
@@ -740,14 +744,14 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         raw_length = max(0, int(target * 0.95))
         for _ in range(self.context.max_search):
             if raw_length == 0:
-                encoded = b""
+                encoded = ""
             else:
                 raw = bytes(
                     self.generator.random_elements(
                         elements=self._QP_INPUT_CHARS, length=raw_length, unique=False
                     )
                 )
-                encoded = quopri.encodestring(raw, quotetabs=True)
+                encoded = quopri.encodestring(raw, quotetabs=True).decode("ascii")
             encoded_len = len(encoded)
             if min_length <= encoded_len <= max_length:
                 return encoded
@@ -761,8 +765,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             f"{max_length} are incompatible with contentEncoding: quoted-printable."
         )
 
-    def _format_binary(self, length: int) -> bytes:
-        return self.generator.binary(length=length)
+    def _format_binary(self, length: int) -> str:
+        return self.generator.binary(length=length).decode("latin1")
 
     def _format_email(self, min_length: int = 0, max_length: int = 254) -> str:
         """
@@ -1833,8 +1837,30 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         return None
 
     def jsonschema_oneof(self, schemas: Iterable[JsonT]) -> JsonT:
-        schema = self.generator.random_element(schemas)
-        return self._from_schema(schema)
+        schema_list = list(schemas)
+        if not schema_list:
+            raise UnsatisfiableConstraintsError("oneOf has no candidate schemas")
+
+        for _ in range(self.context.max_search):
+            preferred = self.generator.random_element(schema_list)
+            ordered_schemas = [
+                preferred,
+                *[schema for schema in schema_list if schema is not preferred],
+            ]
+            for schema in ordered_schemas:
+                try:
+                    candidate = self._from_schema(schema)
+                except (NoExampleFoundError, UnsatisfiableConstraintsError):
+                    continue
+                valid_count = sum(
+                    1 for branch in schema_list if self._schema_accepts_value(candidate, branch)
+                )
+                if valid_count == 1:
+                    return candidate
+
+        raise NoExampleFoundError(
+            f"Could not generate a value matching oneOf schema {schema_list!r}"
+        )
 
     def jsonschema_anyof(self, schemas: Iterable[JsonT]) -> JsonT:
         """
@@ -1862,8 +1888,29 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         if kind == "untyped":
             return self._from_schema(group[0])
         sub_schemas = self.generator.random_sample(group, length=None)
-        schema = compound_schema(sub_schemas)
-        return self._from_schema(schema)
+
+        def generate_from_single_branch() -> JsonT:
+            last_error: Exception | None = None
+            for sub_schema in sub_schemas:
+                try:
+                    return self._from_schema(sub_schema)
+                except (NoExampleFoundError, UnsatisfiableConstraintsError, ValueError) as error:
+                    last_error = error
+                    continue
+            if isinstance(last_error, UnsatisfiableConstraintsError):
+                raise last_error from None
+            raise NoExampleFoundError(
+                f"Could not generate a value matching anyOf schema {group!r}"
+            ) from None
+
+        try:
+            schema = compound_schema(sub_schemas)
+        except UnsatisfiableConstraintsError:
+            return generate_from_single_branch()
+        try:
+            return self._from_schema(schema)
+        except (NoExampleFoundError, UnsatisfiableConstraintsError, ValueError):
+            return generate_from_single_branch()
 
     def jsonschema_allof(self, schemas: Iterable[JsonT]) -> JsonT:
         """
@@ -2457,6 +2504,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         pattern_properties = pattern_properties or {}
         required_set = set(required or [])
         generated = {}
+        additional_evaluated_keys: set[str] = set()
 
         def _schema_for_key(attr: str) -> SchemaT:
             """
@@ -2519,12 +2567,30 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                     continue
                 # generate a key name matching the pattern
                 _name_schema = {"type": "string", "pattern": pattern}
+                if property_names is not None:
+                    try:
+                        _name_schema = _merge_schemas(_name_schema, property_names)
+                    except UnsatisfiableConstraintsError as error:
+                        if not already_matched and min_needed > 0:
+                            raise UnsatisfiableConstraintsError(
+                                "Cannot satisfy patternProperties and propertyNames constraints."
+                            ) from error
+                        continue
                 try:
                     key = self.descend_into(self._from_schema)(_name_schema)
-                except UnsatisfiableConstraintsError:
+                except UnsatisfiableConstraintsError as error:
+                    if not already_matched and min_needed > 0:
+                        raise UnsatisfiableConstraintsError(
+                            "Cannot generate a property name satisfying patternProperties."
+                        ) from error
                     continue
                 if key not in generated:
-                    val = self.descend_into(self._from_schema)(pschema)
+                    try:
+                        val = self.descend_into(self._from_schema)(pschema)
+                    except UnsatisfiableConstraintsError as error:
+                        if min_needed > 0:
+                            raise error
+                        continue
                     generated[key] = val
                     min_needed = max(0, min_needed - 1)
 
@@ -2564,6 +2630,8 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             _val_schema = additional_properties if isinstance(additional_properties, dict) else {}
             for name in generated_names:
                 generated[name] = self.descend_into(self._from_schema)(_val_schema)
+                if isinstance(additional_properties, dict):
+                    additional_evaluated_keys.add(name)
 
         # enforce dependentRequired: if a trigger key is present,
         # all its dependent keys must also be present
@@ -2596,6 +2664,7 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
         # enforce unevaluatedProperties
         if unevaluated_properties is not None:
             evaluated_keys = set(properties.keys())
+            evaluated_keys.update(additional_evaluated_keys)
             for pattern in pattern_properties:
                 for k in list(generated.keys()):
                     if re.search(pattern, k):
@@ -2616,6 +2685,12 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
                 # re-generate unevaluated values to match the schema
                 for k in unevaluated:
                     generated[k] = self.descend_into(self._from_schema)(unevaluated_properties)
+
+        if len(generated) < min_properties:
+            raise UnsatisfiableConstraintsError(
+                "Could not generate enough object properties to satisfy "
+                f"minProperties: {min_properties}."
+            )
 
         return generated
 
