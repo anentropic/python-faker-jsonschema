@@ -66,6 +66,22 @@ def test_oneof_direct_call(faker, repeats_for_slow):
     assert len(types_seen) >= 2, f"Only saw types: {types_seen}"
 
 
+def test_oneof_overlapping_numeric_types_requires_exactly_one_match(faker, provider, monkeypatch):
+    """OneOf must reject values that validate against both integer and number."""
+    schema = {
+        "oneOf": [
+            {"type": "integer"},
+            {"type": "number"},
+        ]
+    }
+
+    monkeypatch.setattr(provider.generator, "random_element", lambda elements: list(elements)[0])
+
+    result = faker.from_jsonschema(schema)
+    assert isinstance(result, int) and not isinstance(result, bool)
+    validate(result, schema)
+
+
 # ── anyOf ────────────────────────────────────────────────────────────
 
 
@@ -127,6 +143,28 @@ def test_anyof_direct_call(faker, repeats_for_slow):
             for s in schemas
         )
         assert valid, f"{result} doesn't satisfy any sub-schema"
+
+
+def test_anyof_disjoint_same_type_branches_still_generate_valid_value(faker, provider, monkeypatch):
+    """AnyOf should select a satisfiable branch, not intersect disjoint same-type schemas."""
+    schema = {
+        "anyOf": [
+            {"type": "integer", "maximum": 0},
+            {"type": "integer", "minimum": 1},
+        ]
+    }
+
+    def sample_all(elements, length=None):
+        values = list(elements)
+        if length is None:
+            return values
+        return values[:length]
+
+    monkeypatch.setattr(provider.generator, "random_sample", sample_all)
+
+    result = faker.from_jsonschema(schema)
+    assert isinstance(result, int) and not isinstance(result, bool)
+    validate(result, schema)
 
 
 # ── allOf ────────────────────────────────────────────────────────────

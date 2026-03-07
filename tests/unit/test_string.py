@@ -515,6 +515,24 @@ def test_format_regex(faker, repeats_for_fast):
         re.compile(result)
 
 
+def test_from_schema_string_format_byte_round_trip(faker, repeats_for_fast):
+    """format: byte must still produce a JSON string instance."""
+    schema = {"type": "string", "format": "byte"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_jsonschema(schema)
+        assert isinstance(result, str)
+        validate(result, schema)
+
+
+def test_from_schema_string_format_binary_round_trip(faker, repeats_for_fast):
+    """format: binary must still produce a JSON string instance."""
+    schema = {"type": "string", "format": "binary"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_jsonschema(schema)
+        assert isinstance(result, str)
+        validate(result, schema)
+
+
 # ── contentEncoding ──────────────────────────────────────────────────
 
 
@@ -664,6 +682,24 @@ def test_content_encoding_case_insensitive(faker):
     for encoding in ("BASE64", "Base64", "BASE32", "Base16", "BINARY"):
         result = faker.from_jsonschema({"type": "string", "contentEncoding": encoding})
         assert isinstance(result, bytes)
+
+
+def test_from_schema_content_encoding_base64_round_trip(faker, repeats_for_fast):
+    """ContentEncoding metadata must not change the JSON string instance type."""
+    schema = {"type": "string", "contentEncoding": "base64"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_jsonschema(schema)
+        assert isinstance(result, str)
+        validate(result, schema)
+
+
+def test_from_schema_content_encoding_binary_round_trip(faker, repeats_for_fast):
+    """contentEncoding: binary must still produce a JSON string instance."""
+    schema = {"type": "string", "contentEncoding": "binary"}
+    for _ in range(repeats_for_fast):
+        result = faker.from_jsonschema(schema)
+        assert isinstance(result, str)
+        validate(result, schema)
 
 
 # -- Length-aware format tests -----------------------------------------------
