@@ -158,6 +158,23 @@ def test_jsonschema_object_property_names(faker, property_names):
     validate(result, schema)
 
 
+def test_jsonschema_object_property_names_constrain_pattern_properties(faker):
+    """PropertyNames must also constrain keys generated via patternProperties."""
+    schema = {
+        "type": "object",
+        "patternProperties": {
+            "^abcdef": {"type": "integer"},
+        },
+        "propertyNames": {"maxLength": 3},
+        "additionalProperties": False,
+        "minProperties": 1,
+        "maxProperties": 1,
+    }
+
+    with pytest.raises(UnsatisfiableConstraintsError):
+        faker.from_jsonschema(schema)
+
+
 # ── Negative / edge-case tests ───────────────────────────────────────
 
 
@@ -207,16 +224,16 @@ def test_jsonschema_object_no_properties_no_additional(faker):
 
 
 def test_jsonschema_object_required_not_in_properties(faker, repeats_for_slow):
-    """Required keys not listed in properties should still be generated."""
-    for _ in range(repeats_for_slow):
-        result = faker.jsonschema_object(
-            properties={"a": {"type": "string"}},
-            required=["a", "b", "c"],
+    """Undeclared required keys are unsatisfiable when additionalProperties is false."""
+    with pytest.raises(UnsatisfiableConstraintsError):
+        faker.from_jsonschema(
+            {
+                "type": "object",
+                "properties": {"a": {"type": "string"}},
+                "required": ["a", "b", "c"],
+                "additionalProperties": False,
+            }
         )
-        assert "a" in result
-        assert "b" in result
-        assert "c" in result
-        assert isinstance(result["a"], str)
 
 
 def test_jsonschema_object_large_min_additional_only(faker):
@@ -281,6 +298,27 @@ def test_jsonschema_object_additional_properties_schema(faker, repeats_for_slow)
             if key != "name":
                 assert isinstance(val, int), f"Key {key!r} should be int, got {type(val)}"
         validate(result, schema)
+
+
+def test_jsonschema_object_additional_properties_respect_unevaluated_properties(faker):
+    """Keys validated by additionalProperties must not be removed by unevaluatedProperties."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+        },
+        "required": ["name"],
+        "additionalProperties": {"type": "integer"},
+        "unevaluatedProperties": False,
+        "minProperties": 2,
+        "maxProperties": 2,
+    }
+
+    result = faker.from_jsonschema(schema)
+    assert isinstance(result, dict)
+    assert "name" in result
+    assert len(result) == 2
+    validate(result, schema)
 
 
 def test_jsonschema_object_additional_properties_false_strict(faker, repeats_for_slow):

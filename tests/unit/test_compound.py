@@ -66,6 +66,22 @@ def test_oneof_direct_call(faker, repeats_for_slow):
     assert len(types_seen) >= 2, f"Only saw types: {types_seen}"
 
 
+def test_oneof_overlapping_numeric_types_requires_exactly_one_match(faker, provider, monkeypatch):
+    """OneOf must reject values that validate against both integer and number."""
+    schema = {
+        "oneOf": [
+            {"type": "integer"},
+            {"type": "number"},
+        ]
+    }
+
+    monkeypatch.setattr(provider.generator, "random_element", lambda elements: list(elements)[0])
+
+    result = faker.from_jsonschema(schema)
+    assert not (isinstance(result, int) and not isinstance(result, bool))
+    validate(result, schema)
+
+
 # ── anyOf ────────────────────────────────────────────────────────────
 
 
@@ -127,6 +143,28 @@ def test_anyof_direct_call(faker, repeats_for_slow):
             for s in schemas
         )
         assert valid, f"{result} doesn't satisfy any sub-schema"
+
+
+def test_anyof_disjoint_same_type_branches_still_generate_valid_value(faker, provider, monkeypatch):
+    """AnyOf should select a satisfiable branch, not intersect disjoint same-type schemas."""
+    schema = {
+        "anyOf": [
+            {"type": "integer", "maximum": 0},
+            {"type": "integer", "minimum": 1},
+        ]
+    }
+
+    def sample_all(elements, length=None):
+        values = list(elements)
+        if length is None:
+            return values
+        return values[:length]
+
+    monkeypatch.setattr(provider.generator, "random_sample", sample_all)
+
+    result = faker.from_jsonschema(schema)
+    assert isinstance(result, int) and not isinstance(result, bool)
+    validate(result, schema)
 
 
 # ── allOf ────────────────────────────────────────────────────────────
@@ -236,7 +274,7 @@ class TestIfThenElseEdgeCases:
     """Verify if/then/else merging and generation."""
 
     def test_if_then_else_with_required(self, faker, repeats_for_slow):
-        """if/then/else adding required properties."""
+        """if/then/else adds required properties on the correct branch."""
         schema = {
             "type": "object",
             "properties": {
@@ -253,10 +291,21 @@ class TestIfThenElseEdgeCases:
                 "required": ["name"],
             },
         }
+        saw_then = False
+        saw_else = False
         for _ in range(repeats_for_slow):
             result = faker.from_jsonschema(schema)
             assert isinstance(result, dict)
             assert "type" in result
+            validate(result, schema)
+            if "company" in result:
+                saw_then = True
+                assert result["type"] == "business"
+            if "name" in result:
+                saw_else = True
+                assert result["type"] != "business"
+        assert saw_then, "then-branch was never observed"
+        assert saw_else, "else-branch was never observed"
 
     def test_if_then_else_integer_constraints(self, faker, repeats_for_fast):
         """
@@ -280,9 +329,7 @@ class TestIfThenElseEdgeCases:
         for _ in range(repeats_for_fast):
             result = faker.from_jsonschema(schema)
             assert isinstance(result, int)
-            assert result >= 0
-            # With proper merge, result is at most 150 (then) or 50 (else)
-            assert result <= 200
+            validate(result, schema)
 
     def test_if_then_else_preserves_base_constraints(self, faker, repeats_for_fast):
         """
@@ -370,6 +417,28 @@ class TestIfThenElseEdgeCases:
             assert isinstance(result["value"], int)
             assert result["value"] >= 0
 
+    def test_if_then_else_else_branch_needs_negation(self, faker, repeats_for_fast):
+        """
+        Else branch requires if-condition negation to produce valid values.
+
+        Base: integer 0–200
+        if minimum >= 50 → then maximum 100  (valid range: 50–100)
+        else → multipleOf 7  (without negation could generate 56, 63, …
+               which satisfy if but not then; with negation range is 0–49)
+        """
+        schema = {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 200,
+            "if": {"minimum": 50},
+            "then": {"maximum": 100},
+            "else": {"multipleOf": 7},
+        }
+        for _ in range(repeats_for_fast):
+            result = faker.from_jsonschema(schema)
+            assert isinstance(result, int)
+            validate(result, schema)
+
 
 # ── anyOf edge cases ─────────────────────────────────────────────────
 
@@ -410,6 +479,56 @@ class TestAnyOfEdgeCases:
             result = faker.from_jsonschema(schema)
             assert isinstance(result, dict)
             validate(result, schema)
+
+    def test_anyof_member_without_type(self, faker, repeats_for_slow):
+        """AnyOf should support valid sub-schemas that omit an explicit type."""
+        schema = {
+            "anyOf": [
+                {"const": 1},
+                {"type": "string", "minLength": 1},
+            ]
+        }
+        for _ in range(repeats_for_slow):
+            result = faker.from_jsonschema(schema)
+            validate(result, schema)
+
+
+def test_allof_members_without_type(faker, repeats_for_fast):
+    """AllOf should intersect valid sub-schemas even when members omit type."""
+    schema = {
+        "allOf": [
+            {"const": 1},
+            {"enum": [1, 2]},
+        ]
+    }
+    for _ in range(repeats_for_fast):
+        result = faker.from_jsonschema(schema)
+        assert result == 1
+        validate(result, schema)
+
+
+def test_allof_conflicting_const_without_type_raises(faker):
+    """AllOf with conflicting untyped const values is unsatisfiable."""
+    schema = {
+        "allOf": [
+            {"const": 1},
+            {"const": 2},
+        ]
+    }
+    with pytest.raises(UnsatisfiableConstraintsError):
+        faker.from_jsonschema(schema)
+
+
+def test_allof_disjoint_enum_without_type_raises(faker):
+    """AllOf with disjoint untyped enums is unsatisfiable."""
+    schema = {
+        "allOf": [
+            {"enum": [1, 2]},
+            {"enum": [3, 4]},
+        ]
+    }
+    with pytest.raises(UnsatisfiableConstraintsError):
+        faker.from_jsonschema(schema)
 
 
 # ── Complex real-world compound schemas ──────────────────────────────

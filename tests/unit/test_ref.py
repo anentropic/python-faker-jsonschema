@@ -99,6 +99,34 @@ def test_ref_with_sibling_keywords(faker, repeats_for_fast):
         validate(result, schema)
 
 
+def test_ref_with_sibling_object_keywords(faker, repeats_for_fast):
+    """
+    $ref siblings should merge nested object constraints instead of overwriting them.
+
+    Note: additionalProperties is omitted from the base because, under
+    JSON Schema validation semantics, additionalProperties in the $ref'd
+    schema doesn't "see" properties declared in the sibling — making the
+    combination unsatisfiable.  (Use unevaluatedProperties for that.)
+    """
+    schema = {
+        "$defs": {
+            "base": {
+                "type": "object",
+                "properties": {"a": {"type": "string"}},
+                "required": ["a"],
+            }
+        },
+        "$ref": "#/$defs/base",
+        "properties": {"b": {"type": "integer"}},
+        "required": ["b"],
+    }
+    for _ in range(repeats_for_fast):
+        result = faker.from_jsonschema(schema)
+        assert "a" in result, f"property 'a' from $ref base is missing: {result}"
+        assert "b" in result, f"property 'b' from sibling is missing: {result}"
+        validate(result, schema)
+
+
 # ── Error cases ──────────────────────────────────────────────────────
 
 

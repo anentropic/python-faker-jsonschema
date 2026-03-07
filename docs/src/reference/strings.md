@@ -74,18 +74,18 @@ The `format` keyword selects a specific value generator. All supported formats a
 | `relative-json-pointer` | `'4/RkuzmDDZ/bRuaS/M'` | Relative JSON Pointer |
 | `regex` | `'[A-Z][a-z]*'` | A valid regular expression pattern |
 | `password` | `'ZZMda($#z(5RGF...'` | A strong password string |
-| `byte` | `b'mRfl1duARQXk...'` | Base64-encoded bytes (`bytes` object) |
-| `binary` | `b'\xf6\xcc\x0c...'` | Raw binary bytes (`bytes` object) |
+| `byte` | `'bVJmbDFkdUFSUVhr...'` | Base64-encoded string |
+| `binary` | `'\u00f6\u00cc\f6...'` | Binary data returned as a Python `str` |
 
 **Strategy:** each format maps to a dedicated generator method. Most variable-length formats (`email`, `uri`, `hostname`, `duration`, `json-pointer`, etc.) are length-aware — they accept `minLength`/`maxLength` and produce output in that range directly, without retry. If the requested length falls outside the format's valid bounds (e.g. `minLength: 300` for `email`, which exceeds the RFC 5321 maximum of 254), an `UnsatisfiableConstraintsError` is raised. Fixed-length formats (`date`, `uuid`, etc.) ignore length constraints. The `regex` format and any unknown format resolved via Faker fall back to retry sampling (up to `max_search` attempts).
 
 **Limitations:**
 
 - `pattern` takes precedence over `format` when both are set.
-- `byte` and `binary` return Python `bytes` objects rather than `str`. If your consumer requires a `str`, decode accordingly.
+- `binary` uses a Latin-1 decoded string so each byte value maps losslessly onto one code point. This keeps the JSON Schema type as `string`, but the result may contain non-printable characters.
 - `contentMediaType` is accepted in the schema but ignored during generation (it serves as a hint only).
 - `password` with `maxLength < 4` produces random alphanumeric strings instead of strong passwords (Faker's `password()` generator requires at least 4 characters for its character-class guarantees).
-- `duration` generates realistic calendar values (years ≤ 10, months ≤ 11, etc.) for typical lengths (up to 20 chars). When `minLength` exceeds 20, the fallback inflates component values beyond realistic ranges to reach the target. Maximum achievable length is 32 characters; `minLength > 32` raises `UnsatisfiableConstraintsError`.
+- `duration` generates realistic calendar values (years <= 10, months <= 11, etc.) for typical lengths (up to 20 chars). When `minLength` exceeds 20, the fallback inflates component values beyond realistic ranges to reach the target. Maximum achievable length is 32 characters; `minLength > 32` raises `UnsatisfiableConstraintsError`.
 
 ---
 
@@ -93,7 +93,7 @@ The `format` keyword selects a specific value generator. All supported formats a
 
 ### `contentEncoding`
 
-All RFC-defined `contentEncoding` values are supported. All return `bytes`. Unknown values fall through to plain string generation.
+All RFC-defined `contentEncoding` values are supported. All return Python `str` values so the generated instance still conforms to JSON Schema `type: string`. Unknown values fall through to plain string generation.
 
 | Value | RFC | Description |
 |---|---|---|
@@ -110,7 +110,7 @@ All RFC-defined `contentEncoding` values are supported. All return `bytes`. Unkn
 ```
 
 ```
-b'dGVzdA=='
+'dGVzdA=='
 ```
 
 ```json
@@ -118,7 +118,7 @@ b'dGVzdA=='
 ```
 
 ```
-b'ORSXG5BR'
+'ORSXG5BR'
 ```
 
 ```json
@@ -126,7 +126,7 @@ b'ORSXG5BR'
 ```
 
 ```
-b'48656C6C6F'
+'48656C6C6F'
 ```
 
 ```json
@@ -134,7 +134,9 @@ b'48656C6C6F'
 ```
 
 ```
-b'Hello World'
+'Hello World'
 ```
 
-**Note:** `minLength`/`maxLength` constrain the *encoded* output length. For `base64`, `base32`, and `base16`, an `UnsatisfiableConstraintsError` is raised if no valid encoded length can fit within the given range.
+**Strategy:** `minLength`/`maxLength` constrain the *encoded* output length. For `base64`, `base32`, and `base16`, the generator first chooses a valid encoded length and then generates raw bytes that encode to that length before decoding the encoded result back to text.
+
+**Limitations:** `binary` and `8bit` may contain non-printable characters because they preserve arbitrary octets inside a Python string. For `base64`, `base32`, and `base16`, an `UnsatisfiableConstraintsError` is raised if no valid encoded length can fit within the requested range.

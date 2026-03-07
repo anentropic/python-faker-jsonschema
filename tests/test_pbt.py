@@ -247,6 +247,103 @@ def test_pbt_allof_integer(schema1, schema2):
     validate(result, schema2)
 
 
+def _small_json_scalars():
+    return st.one_of(
+        st.integers(min_value=-20, max_value=20),
+        st.text(min_size=0, max_size=8),
+        st.booleans(),
+        st.none(),
+    )
+
+
+def _const_enum_allof_schemas():
+    """Strategy yielding satisfiable allOf schemas over const/enum keywords."""
+    values = st.lists(_small_json_scalars(), min_size=1, max_size=4, unique_by=repr)
+
+    const_and_enum = _small_json_scalars().flatmap(
+        lambda value: values.map(
+            lambda extras: {
+                "allOf": [
+                    {"const": value},
+                    {"enum": [value, *[extra for extra in extras if extra != value]]},
+                ]
+            }
+        )
+    )
+
+    enum_and_enum = values.flatmap(
+        lambda left: values.map(
+            lambda right: {
+                "allOf": [
+                    {"enum": left},
+                    {"enum": right + [left[0]]},
+                ]
+            }
+        )
+    )
+
+    same_const = _small_json_scalars().map(
+        lambda value: {"allOf": [{"const": value}, {"const": value}]}
+    )
+
+    return st.one_of(const_and_enum, enum_and_enum, same_const)
+
+
+@given(schema=_const_enum_allof_schemas())
+@settings(
+    max_examples=40,
+    suppress_health_check=[HealthCheck.too_slow],
+    deadline=None,
+)
+def test_pbt_allof_const_enum_round_trip(schema):
+    """AllOf should preserve satisfiable intersections over const/enum."""
+    result = _faker.from_jsonschema(schema)
+    validate(result, schema)
+
+
+def _if_then_else_object_schemas():
+    """Strategy yielding discriminator-style object schemas for if/then/else."""
+    kind_values = st.tuples(
+        st.text(min_size=1, max_size=8),
+        st.text(min_size=1, max_size=8),
+    ).filter(lambda pair: pair[0] != pair[1])
+
+    return kind_values.map(
+        lambda kinds: {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "enum": [kinds[0], kinds[1]]},
+            },
+            "required": ["kind"],
+            "if": {"properties": {"kind": {"const": kinds[0]}}},
+            "then": {
+                "properties": {"company": {"type": "string", "minLength": 1}},
+                "required": ["company"],
+            },
+            "else": {
+                "properties": {"name": {"type": "string", "minLength": 1}},
+                "required": ["name"],
+            },
+        }
+    )
+
+
+@given(schema=_if_then_else_object_schemas())
+@settings(
+    max_examples=30,
+    suppress_health_check=[HealthCheck.too_slow],
+    deadline=None,
+)
+def test_pbt_if_then_else_object_round_trip(schema):
+    """Discriminator-style if/then/else objects should validate fully."""
+    result = _faker.from_jsonschema(schema)
+    validate(result, schema)
+    if "company" in result:
+        assert result["kind"] == schema["if"]["properties"]["kind"]["const"]
+    if "name" in result:
+        assert result["kind"] != schema["if"]["properties"]["kind"]["const"]
+
+
 # ── New feature PBT tests ────────────────────────────────────────────
 
 

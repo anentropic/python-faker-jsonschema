@@ -45,9 +45,9 @@ At least one sub-schema must be satisfied. The generator picks one sub-schema's 
 2233
 ```
 
-**Strategy:** branches are grouped by `type`. One type is chosen at random; all branches of that type are merged and used for generation.
+**Strategy:** branches are grouped by `type`. One type is chosen at random, and a random subset of that type-group is merged and used for generation. If that merged schema turns out to be unsatisfiable, generation falls back to a single branch from the same group so the result still satisfies at least one `anyOf` branch.
 
-**Limitations:** cross-type compatibility is not checked. If branches with the same type have contradictory constraints, `UnsatisfiableConstraintsError` may be raised.
+**Limitations:** the generator does not search across every possible branch combination. It stays within one chosen type-group per call, so it may miss a satisfiable cross-group combination even when one exists.
 
 ---
 
@@ -68,9 +68,9 @@ Exactly one sub-schema must be satisfied. The generator picks one branch at rand
 16476
 ```
 
-**Strategy:** selects one branch uniformly at random and generates from it.
+**Strategy:** picks a preferred branch, generates a candidate, and validates it against every `oneOf` branch. If the candidate matches more than one branch, generation retries with other branches until it finds a value that satisfies exactly one sub-schema.
 
-**Limitations:** the generator does not verify mutual exclusivity. A value generated from one `oneOf` branch might also satisfy another branch; if strict `oneOf` semantics are required, validate the result with `jsonschema.validate()`.
+**Limitations:** exact-one semantics use bounded retry (`max_search`). Highly overlapping `oneOf` branches can still exhaust the search budget and raise `NoExampleFoundError`.
 
 ---
 
