@@ -15,4 +15,6 @@ updates:
       interval: "weekly"
       day: "monday"
     groups:
-      python-uv: {}
+      python-uv:
+        patterns:
+          - "*"
