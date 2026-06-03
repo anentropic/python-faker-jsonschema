@@ -851,8 +851,6 @@ class JSONSchemaProvider(BaseProvider, metaclass=JSONSchemaProviderMetaclass):
             path_len = self.generator.random_int(1, min(path_max, 20))
             path = self.generator.pystr(min_chars=path_len, max_chars=path_len)
             return f"{base}/{path}"
-        elif path_max == 0 and len(base) < min_length:
-            return f"{base}/"
         return base
 
     def _format_hostname(self, min_length: int = 0, max_length: int = 253) -> str:
