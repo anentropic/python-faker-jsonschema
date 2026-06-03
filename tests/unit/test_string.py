@@ -1,5 +1,6 @@
 import itertools
 import re
+from unittest.mock import patch
 
 import pytest
 from jsonschema import validate
@@ -813,6 +814,38 @@ class TestLengthAwareFormats:
         for _ in range(repeats_for_fast):
             result = faker.from_jsonschema(schema)
             assert 5 <= len(result) <= 50
+
+    def test_uri_path_max_zero_with_min_length_exceeds_base(self, provider):
+        """
+        Regression: _format_uri edge case where path_max=0 but len(base) < min_length.
+
+        When max_length == len(base) + 1, there is room for exactly one more character
+        (the trailing "/"). If min_length also equals len(base) + 1, the result must
+        include that trailing slash to satisfy minLength. Previously the function
+        returned base (too short by one character).
+        """
+        # Use a fixed domain to get a predictable base length
+        fixed_domain = "example.com"
+        fixed_scheme = "http"
+        base = f"{fixed_scheme}://{fixed_domain}"  # "http://example.com" = 18 chars
+        base_len = len(base)
+        # max_length == base_len + 1 → path_max = 0, leaving room only for "/"
+        # min_length == base_len + 1 → result must be at least base_len + 1 chars
+        min_length = base_len + 1
+        max_length = base_len + 1
+
+        with (
+            patch.object(provider.generator, "domain_name", return_value=fixed_domain),
+            patch.object(provider.generator, "random_element", return_value=fixed_scheme),
+        ):
+            result = provider._format_uri(min_length=min_length, max_length=max_length)
+
+        assert len(result) >= min_length, (
+            f"Expected len >= {min_length}, got {len(result)!r} ({result!r})"
+        )
+        assert len(result) <= max_length, (
+            f"Expected len <= {max_length}, got {len(result)!r} ({result!r})"
+        )
 
 
 # -- Pattern + length tests -------------------------------------------------
