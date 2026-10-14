@@ -4,7 +4,7 @@
 
 `faker-jsonschema` is a [Faker](https://faker.readthedocs.io/) provider that generates random data conforming to a [JSON Schema](https://json-schema.org/).
 
-Pass any JSON Schema dict to `faker.from_jsonschema()` and get back a valid, randomly generated value.
+Pass a JSON Schema dict to `faker.from_jsonschema()` and get back a valid, randomly generated value.
 
 1800+ unit and PBT tests aiming to ensure correctness. Limitations of our strategies are acknowledged in the docs.
 
