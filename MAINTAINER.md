@@ -59,7 +59,7 @@ Hooks are defined in `.pre-commit-config.yaml` and run via `prek` in CI. They in
 
 ## Docs
 
-Docs are built with mkdocs-material and deployed to GitHub Pages automatically on push to `main` (via `.github/workflows/docs.yml`).
+Docs are built with mkdocs-material and deployed to GitHub Pages automatically on push to `main` (via `.github/workflows/docs.yml`). The same workflow builds the docs on every PR without deploying them, so a broken build fails the PR.
 
 ```bash
 just docs-serve       # preview locally at http://127.0.0.1:8000
